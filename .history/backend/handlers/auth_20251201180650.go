@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"foodrecipes/models"
@@ -77,7 +76,6 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(LoginResponse{Token: token, User: user})
 }
 
-// SignupHandler handles user registration
 func SignupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req SignupRequest
@@ -88,36 +86,31 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if email already exists
-	var count int
-	err := DB.Get(&count, "SELECT COUNT(*) FROM users WHERE email=$1", req.Email)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(SignupResponse{Error: "Database error"})
-		return
-	}
-	if count > 0 {
+	var user models.User
+	err := DB.Get(&user, "SELECT * FROM users WHERE email=$1", req.Email)
+	if err == nil {
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(SignupResponse{Error: "Email already registered"})
+		json.NewEncoder(w).Encode(SignupResponse{Error: "Email already exists"})
 		return
 	}
 
-	// Hash the password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), 10)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(SignupResponse{Error: "Could not hash password"})
 		return
 	}
 
-	// Insert new user into database
-	var user models.User
-	err = DB.Get(&user, `
-		INSERT INTO users (name, email, password)
-		VALUES ($1, $2, $3)
-		RETURNING id, name, email, COALESCE(avatar_url, '') as avatar_url
-	`, req.Name, req.Email, string(hashedPassword))
+	// Create user
+	user = models.User{
+		Name:     req.Name
+		Email:    req.Email
+		Password: string(hashedPassword),
+	}
+
+	_, err = DB.Exec("INSERT INTO users (name, email, password) VALUES ($1, $2, $3)", user.Name, user.Email, user.Password)
 	if err != nil {
-		fmt.Println("Error creating user:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(SignupResponse{Error: "Could not create user"})
 		return

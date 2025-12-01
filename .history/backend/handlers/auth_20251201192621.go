@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"foodrecipes/models"
@@ -116,6 +117,7 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, name, email, COALESCE(avatar_url, '') as avatar_url
 	`, req.Name, req.Email, string(hashedPassword))
 	if err != nil {
+		fmt.Println("Error creating user:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(SignupResponse{Error: "Could not create user"})
 		return

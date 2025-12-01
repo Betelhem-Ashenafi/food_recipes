@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"foodrecipes/models"
@@ -52,6 +53,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Query user by email
 	err := DB.Get(&user, "SELECT id, name, email, password, COALESCE(avatar_url, '') as avatar_url FROM users WHERE email=$1", req.Email)
 	if err != nil {
+		fmt.Println("Login error:", err)
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(LoginResponse{Error: "Invalid email or password"})
 		return
@@ -116,6 +118,7 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, name, email, COALESCE(avatar_url, '') as avatar_url
 	`, req.Name, req.Email, string(hashedPassword))
 	if err != nil {
+		fmt.Println("Error creating user:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(SignupResponse{Error: "Could not create user"})
 		return

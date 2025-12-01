@@ -1,0 +1,23 @@
+# Go
+bin/
+*.exe
+*.test
+
+# Node / frontend
+node_modules/
+.nuxt/
+dist/
+
+# Docker volume
+postgres_data/
+docker/postgres_data/
+
+# IDE and OS
+.vscode/
+*.swp
+.DS_Store
+
+# Env
+.env
+.env.local
+.env.*.local

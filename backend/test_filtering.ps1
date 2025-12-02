@@ -1,4 +1,4 @@
-$baseUrl = "http://localhost:8080"
+$baseUrl = "http://localhost:8081"
 
 # 1. Login to get token
 $loginBody = @{

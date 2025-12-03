@@ -136,7 +136,8 @@ try {
 } catch {
     Write-Host "Success: Edit failed as expected ($($_.Exception.Message))"
 }
-/*Implement edit/delete recipe endpoints (with owner check).
+<#
+Implement edit/delete recipe endpoints (with owner check).
 Add endpoints for multiple image upload and featured image selection.
 Add filtering/search endpoints (by time, ingredients, title, creator).
 Implement like, bookmark, comment, rate features.
@@ -144,3 +145,4 @@ Integrate Hasura (actions, permissions, events, triggers, computed fields, etc.)
 Add file upload support.
 Add buy recipe (Chapa integration).
 Implement Go GraphQL client for Hasura.
+#>

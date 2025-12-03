@@ -1,12 +1,26 @@
 $baseUrl = "http://localhost:8081"
 
-# 1. Login to get token
-$loginBody = @{
-    email = "test@example.com"
-    password = "password123"
-} | ConvertTo-Json
+# 1. Signup/Login to get token
+$email = "testfilter@example.com"
+$password = "password123"
 
 try {
+    $signupBody = @{
+        name = "Filter Tester"
+        email = $email
+        password = $password
+    } | ConvertTo-Json
+    $response = Invoke-RestMethod -Uri "$baseUrl/signup" -Method Post -Body $signupBody -ContentType "application/json" -ErrorAction SilentlyContinue
+    Write-Host "Signup successful."
+} catch {
+    Write-Host "Signup failed (user might exist), trying login..."
+}
+
+try {
+    $loginBody = @{
+        email = $email
+        password = $password
+    } | ConvertTo-Json
     $loginResponse = Invoke-RestMethod -Uri "$baseUrl/login" -Method Post -Body $loginBody -ContentType "application/json"
     $token = $loginResponse.token
     Write-Host "Login successful. Token: $token"
@@ -22,9 +36,26 @@ $headers = @{
 # Helper function to print recipes
 function Print-Recipes($recipes, $label) {
     Write-Host "--- $label ---"
-    if ($recipes.Count -eq 0) {
+    if ($null -eq $recipes) {
+        Write-Host "Result is null."
+        return
+    }
+    
+    # Check if it's an array or single object
+    $count = 0
+    if ($recipes -is [System.Array] -or $recipes -is [System.Collections.IEnumerable]) {
+        $count = $recipes.Count
+    } else {
+        $count = 1
+        $recipes = @($recipes) # Wrap in array
+    }
+
+    if ($count -eq 0) {
         Write-Host "No recipes found."
     } else {
+        Write-Host "Found $count recipes."
+        # Print raw for debugging if needed, or just the fields
+        # Write-Host ($recipes | ConvertTo-Json -Depth 2) 
         foreach ($r in $recipes) {
             Write-Host "ID: $($r.id), Title: $($r.title), Time: $($r.preparation_time)"
         }
@@ -33,10 +64,10 @@ function Print-Recipes($recipes, $label) {
 }
 
 # 2. Test Filter by Title
-Write-Host "Testing Filter by Title (e.g., 'Pasta')..."
+Write-Host "Testing Filter by Title (e.g., 'Spaghetti')..."
 try {
-    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?title=Pasta" -Method Get -Headers $headers
-    Print-Recipes $recipes "Recipes with 'Pasta' in title"
+    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?title=Spaghetti" -Method Get -Headers $headers
+    Print-Recipes $recipes "Recipes with 'Spaghetti' in title"
 } catch {
     Write-Error "Filter by title failed: $_"
 }
@@ -51,10 +82,10 @@ try {
 }
 
 # 4. Test Filter by Ingredient
-Write-Host "Testing Filter by Ingredient (e.g., 'Tomato')..."
+Write-Host "Testing Filter by Ingredient (e.g., 'Egg')..."
 try {
-    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?ingredient=Tomato" -Method Get -Headers $headers
-    Print-Recipes $recipes "Recipes with 'Tomato'"
+    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?ingredient=Egg" -Method Get -Headers $headers
+    Print-Recipes $recipes "Recipes with 'Egg'"
 } catch {
     Write-Error "Filter by ingredient failed: $_"
 }
@@ -69,10 +100,10 @@ try {
 }
 
 # 6. Test Combined Filter
-Write-Host "Testing Combined Filter (Title='Pasta' AND Time<=45)..."
+Write-Host "Testing Combined Filter (Title='Spaghetti' AND Time<=25)..."
 try {
-    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?title=Pasta&time=45" -Method Get -Headers $headers
-    Print-Recipes $recipes "Recipes 'Pasta' <= 45 mins"
+    $recipes = Invoke-RestMethod -Uri "$baseUrl/recipes?title=Spaghetti&time=25" -Method Get -Headers $headers
+    Print-Recipes $recipes "Recipes 'Spaghetti' <= 25 mins"
 } catch {
     Write-Error "Combined filter failed: $_"
 }

@@ -21,12 +21,13 @@ type Recipe struct {
 	Images          []RecipeImage `json:"images"`
 	FeaturedImageID int           `json:"featured_image_id"`
 }
+
 // RecipeImage represents an image for a recipe
 type RecipeImage struct {
-	ID        int    `db:"id" json:"id"`
-	RecipeID  int    `db:"recipe_id" json:"recipe_id"`
-	URL       string `db:"url" json:"url"`
-	IsFeatured bool  `db:"is_featured" json:"is_featured"`
+	ID         int    `db:"id" json:"id"`
+	RecipeID   int    `db:"recipe_id" json:"recipe_id"`
+	URL        string `db:"url" json:"url"`
+	IsFeatured bool   `db:"is_featured" json:"is_featured"`
 }
 
 type RecipeIngredient struct {

@@ -7,7 +7,6 @@ import (
 	"foodrecipes/models"
 	"foodrecipes/utils"
 
-	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -36,8 +35,6 @@ type SignupResponse struct {
 	User  models.User `json:"user"`
 	Error string      `json:"error,omitempty"`
 }
-
-var DB *sqlx.DB // Set this in main.go
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -122,4 +119,70 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(SignupResponse{User: user})
+}
+
+// Hasura Action structures
+type HasuraActionPayload struct {
+	Action struct {
+		Name string `json:"name"`
+	} `json:"action"`
+	Input struct {
+		Arg LoginRequest `json:"arg"`
+	} `json:"input"`
+}
+
+type HasuraLoginResponse struct {
+	Token  string `json:"token"`
+	UserID int    `json:"user_id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+}
+
+type HasuraErrorResponse struct {
+	Message string `json:"message"`
+	Code    string `json:"code,omitempty"`
+}
+
+func HasuraLoginHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var payload HasuraActionPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+	req := payload.Input.Arg
+
+	var user models.User
+	// Query user by email
+	err := DB.Get(&user, "SELECT id, name, email, password, COALESCE(avatar_url, '') as avatar_url FROM users WHERE email=$1", req.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest) // Hasura expects 400 for business logic errors
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid email or password", Code: "invalid_credentials"})
+		return
+	}
+
+	// Check password
+	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)) != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid email or password", Code: "invalid_credentials"})
+		return
+	}
+
+	// Generate JWT
+	token, err := utils.GenerateJWT(user.ID, user.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Could not generate token"})
+		return
+	}
+
+	// Return response matching LoginOutput type in Hasura
+	json.NewEncoder(w).Encode(HasuraLoginResponse{
+		Token:  token,
+		UserID: user.ID,
+		Name:   user.Name,
+		Email:  user.Email,
+	})
 }

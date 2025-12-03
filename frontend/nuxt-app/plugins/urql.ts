@@ -1,6 +1,6 @@
 import { createClient, ssrExchange, fetchExchange } from '@urql/core';
+import urql from '@urql/vue';
 import { defineNuxtPlugin } from 'nuxt/app';
-import { ref } from 'vue';
 
 export default defineNuxtPlugin((nuxtApp) => {
   const ssr = ssrExchange({
@@ -20,6 +20,5 @@ export default defineNuxtPlugin((nuxtApp) => {
     },
   });
 
-  nuxtApp.vueApp.provide('$urql', client);
-  nuxtApp.provide('urql', client);
+  nuxtApp.vueApp.use(urql, client);
 });

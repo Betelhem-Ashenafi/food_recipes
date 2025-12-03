@@ -20,6 +20,7 @@ services:
       HASURA_GRAPHQL_DATABASE_URL: postgres://fooduser:foodpass@postgres:5432/foodrecipes
       HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
       HASURA_GRAPHQL_ADMIN_SECRET:      myhasurasecret
+      HASURA_GRAPHQL_UNAUTHORIZED_ROLE: "public"
     depends_on:
       - postgres
 

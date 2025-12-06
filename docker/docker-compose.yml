@@ -21,6 +21,7 @@ services:
       HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
       HASURA_GRAPHQL_ADMIN_SECRET:      myhasurasecret
       HASURA_GRAPHQL_UNAUTHORIZED_ROLE: "public"
+      HASURA_GRAPHQL_JWT_SECRET: '{"type": "HS256", "key": "your-secret-key"}'
     depends_on:
       - postgres
 

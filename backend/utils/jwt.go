@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -14,6 +15,11 @@ func GenerateJWT(userID int, email string) (string, error) {
 		"user_id": userID,
 		"email":   email,
 		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+		"https://hasura.io/jwt/claims": jwt.MapClaims{
+			"x-hasura-allowed-roles": []string{"user"},
+			"x-hasura-default-role":  "user",
+			"x-hasura-user-id":       strconv.Itoa(userID),
+		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(jwtSecret)

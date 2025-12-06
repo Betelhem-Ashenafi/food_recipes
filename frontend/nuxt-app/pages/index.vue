@@ -1,35 +1,88 @@
 <template>
-  <div>
-    <h1 class="text-3xl font-bold mb-6">Delicious Recipes</h1>
-    <div v-if="fetching" class="text-center">Loading...</div>
-    <div v-else-if="error" class="text-red-500">Error: {{ error.message }}</div>
-    <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div v-for="recipe in data.recipes" :key="recipe.id" class="bg-white rounded-lg shadow-md overflow-hidden">
-        <img :src="recipe.thumbnail_url || 'https://via.placeholder.com/300'" alt="Recipe Image" class="w-full h-48 object-cover">
-        <div class="p-4">
-          <h2 class="text-xl font-semibold mb-2">{{ recipe.title }}</h2>
-          <p class="text-gray-600 mb-4">{{ recipe.description }}</p>
-          <NuxtLink :to="`/recipes/${recipe.id}`" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">View Recipe</NuxtLink>
-        </div>
+  <div 
+    @click="navigateToLogin" 
+    class="relative min-h-screen w-full overflow-hidden cursor-pointer group"
+  >
+    <!-- Background Image with Overlay -->
+    <div class="absolute inset-0">
+      <img 
+        src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
+        alt="Elegant Food" 
+        class="w-full h-full object-cover transition-transform duration-[10s] ease-out group-hover:scale-105"
+      >
+      <!-- Elegant Gradient Overlay -->
+      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/80"></div>
+    </div>
+
+    <!-- Content -->
+    <div class="relative z-10 flex flex-col items-center justify-center min-h-screen text-center px-4">
+      <!-- Logo / Icon -->
+      <div class="mb-8 opacity-0 animate-fade-in-down" style="animation-delay: 0.2s; animation-fill-mode: forwards;">
+        <span class="text-6xl">👨‍🍳</span>
+      </div>
+
+      <!-- Main Title -->
+      <h1 class="font-serif text-5xl md:text-7xl font-bold text-white mb-4 tracking-wide opacity-0 animate-fade-in-up" style="animation-delay: 0.5s; animation-fill-mode: forwards;">
+        <span class="text-emerald-400">Chef's</span> Table
+      </h1>
+
+      <!-- Subtitle -->
+      <p class="text-gray-300 text-lg md:text-xl max-w-lg font-light tracking-wider mb-12 opacity-0 animate-fade-in-up" style="animation-delay: 0.8s; animation-fill-mode: forwards;">
+        Experience the art of culinary excellence. <br>
+        Discover, Create, and Share.
+      </p>
+
+      <!-- Call to Action Indicator -->
+      <div class="opacity-0 animate-pulse" style="animation-delay: 1.5s; animation-fill-mode: forwards;">
+        <span class="text-emerald-400 text-sm uppercase tracking-[0.3em] border-b border-emerald-400 pb-1">
+          Tap anywhere to begin
+        </span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { useQuery } from '@urql/vue';
+const router = useRouter();
 
-const { data, fetching, error } = useQuery({
-  query: `
-    query GetRecipes {
-      recipes {
-        id
-        title
-        description
-        thumbnail_url
-        price
-      }
-    }
-  `
+const navigateToLogin = () => {
+  router.push('/login');
+};
+
+// Define layout as 'none' or 'blank' if you don't want the navbar on this splash screen
+definePageMeta({
+  layout: 'blank'
 });
 </script>
+
+<style scoped>
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-down {
+  animation: fade-in-down 1s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 1s ease-out;
+}
+</style>

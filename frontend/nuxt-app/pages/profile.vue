@@ -1,14 +1,19 @@
 <template>
   <div class="relative min-h-screen pb-20">
-    <!-- Background -->
-    <div class="fixed inset-0 z-0 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=2100&q=80');">
-      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-black/80"></div>
+    <!-- Background Image with Overlay - Sophisticated Food Presentation (Profile Page) -->
+    <div class="fixed inset-0 z-0">
+      <img 
+        src="https://images.unsplash.com/photo-1495521821757-a1efb6729352?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
+        alt="Elegant Food Presentation" 
+        class="w-full h-full object-cover brightness-95"
+      >
+      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 
     <!-- Content -->
-    <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+    <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-16">
       <!-- Profile Header -->
-      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8 shadow-2xl hover:bg-white/15 transition-all duration-300">
         <div class="flex items-center gap-6">
           <div class="h-24 w-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold text-4xl shadow-lg">
             {{ userName.charAt(0) }}
@@ -21,7 +26,7 @@
       </div>
 
       <!-- Tabs -->
-      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden">
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden shadow-2xl">
         <div class="flex border-b border-white/20">
           <button
             v-for="tab in tabs"

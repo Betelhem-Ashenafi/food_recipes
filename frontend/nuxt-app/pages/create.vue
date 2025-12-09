@@ -1,29 +1,31 @@
 <template>
   <div class="relative min-h-screen pb-20">
-    <!-- Background -->
+    <!-- Background Image with Overlay - Inspiring Kitchen Scene (Create Page) -->
     <div class="fixed inset-0 z-0">
       <img 
         src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
-        alt="Cooking" 
-        class="w-full h-full object-cover"
+        alt="Elegant Kitchen" 
+        class="w-full h-full object-cover brightness-95"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/85 via-black/80 to-black/90"></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 
     <!-- Content -->
-    <div class="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+    <div class="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-16">
       <!-- Header -->
-      <div class="text-center mb-10">
-        <h1 class="text-4xl md:text-5xl font-serif font-bold text-white mb-4">
-          Share Your <span class="text-emerald-400">Culinary</span> Creation
-        </h1>
-        <p class="text-gray-300 text-lg">
-          Create a new recipe and inspire food lovers around the world
-        </p>
+      <div class="text-center mb-10 pt-8">
+        <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-3xl shadow-2xl px-8 py-10 mb-8">
+          <h1 class="text-4xl md:text-5xl lg:text-6xl font-serif font-extrabold text-white mb-4 tracking-tight drop-shadow-lg">
+            Share Your <span class="text-emerald-400">Culinary</span> Creation
+          </h1>
+          <p class="text-lg md:text-xl text-gray-200 max-w-2xl mx-auto font-light">
+            Create a new recipe and inspire food lovers around the world
+          </p>
+        </div>
       </div>
 
       <!-- Form Card -->
-      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl shadow-2xl p-8">
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl shadow-2xl p-8 hover:bg-white/15 transition-all duration-300">
         <Form @submit="handleCreateRecipe" :validation-schema="schema" v-slot="{ errors, isSubmitting }">
           
           <!-- Basic Information -->

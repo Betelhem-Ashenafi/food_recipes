@@ -1,10 +1,12 @@
 <template>
   <div class="relative min-h-screen">
-    <!-- Background Image with Overlay (Matching Login Page) -->
-    <div 
-      class="fixed inset-0 z-0 bg-cover bg-center brightness-95"
-      style="background-image: url('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=2100&q=80');"
-    >
+    <!-- Background Image with Overlay - Beautiful Food Spread (Home Page) -->
+    <div class="fixed inset-0 z-0">
+      <img 
+        src="https://images.unsplash.com/photo-1544025162-d76694265947?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
+        alt="Elegant Food Spread" 
+        class="w-full h-full object-cover brightness-95"
+      >
       <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 

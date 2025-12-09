@@ -1,0 +1,278 @@
+<template>
+  <div class="relative min-h-screen pb-20">
+    <!-- Background -->
+    <div class="fixed inset-0 z-0 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=2100&q=80');">
+      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-black/80"></div>
+    </div>
+
+    <!-- Content -->
+    <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+      <!-- Profile Header -->
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+        <div class="flex items-center gap-6">
+          <div class="h-24 w-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold text-4xl shadow-lg">
+            {{ userName.charAt(0) }}
+          </div>
+          <div>
+            <h1 class="text-3xl font-bold text-white mb-2">{{ userName }}</h1>
+            <p class="text-gray-300">{{ userEmail }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden">
+        <div class="flex border-b border-white/20">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            @click="activeTab = tab.id"
+            :class="[
+              'flex-1 px-6 py-4 font-semibold transition-colors',
+              activeTab === tab.id
+                ? 'bg-emerald-500/30 text-emerald-300 border-b-2 border-emerald-400'
+                : 'text-gray-400 hover:text-white hover:bg-white/5'
+            ]"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+
+        <div class="p-8">
+          <!-- My Recipes -->
+          <div v-if="activeTab === 'recipes'">
+            <h2 class="text-2xl font-bold text-white mb-6">My Recipes</h2>
+            <div v-if="myRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div
+                v-for="recipe in myRecipes"
+                :key="recipe.id"
+                class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all cursor-pointer group relative"
+                @click="navigateToRecipe(recipe.id)"
+              >
+                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                <div class="p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">{{ recipe.title }}</h3>
+                    <div class="flex gap-2">
+                      <button
+                        @click.stop="editRecipe(recipe.id)"
+                        class="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg transition-colors"
+                        title="Edit Recipe"
+                      >
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        @click.stop="deleteRecipe(recipe.id)"
+                        class="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
+                        title="Delete Recipe"
+                      >
+                        <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-gray-300 text-sm line-clamp-2 mb-2">{{ recipe.description }}</p>
+                  <div class="flex items-center gap-4 text-xs text-gray-400">
+                    <span>⏱️ {{ recipe.preparation_time }} min</span>
+                    <span v-if="recipe.price > 0">💎 {{ recipe.price }} Credits</span>
+                    <span v-else>🆓 Free</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-else class="text-gray-400 text-center py-8">You haven't created any recipes yet.</p>
+          </div>
+
+          <!-- Bookmarked -->
+          <div v-if="activeTab === 'bookmarked'">
+            <h2 class="text-2xl font-bold text-white mb-6">Bookmarked Recipes</h2>
+            <div v-if="bookmarkedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div
+                v-for="recipe in bookmarkedRecipes"
+                :key="recipe.id"
+                @click="navigateToRecipe(recipe.id)"
+                class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all cursor-pointer"
+              >
+                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                <div class="p-4">
+                  <h3 class="text-xl font-bold text-white mb-2">{{ recipe.title }}</h3>
+                  <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
+                </div>
+              </div>
+            </div>
+            <p v-else class="text-gray-400 text-center py-8">You haven't bookmarked any recipes yet.</p>
+          </div>
+
+          <!-- Purchased -->
+          <div v-if="activeTab === 'purchased'">
+            <h2 class="text-2xl font-bold text-white mb-6">Purchased Recipes</h2>
+            <div v-if="purchasedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div
+                v-for="recipe in purchasedRecipes"
+                :key="recipe.id"
+                @click="navigateToRecipe(recipe.id)"
+                class="bg-white/10 backdrop-blur-lg border border-emerald-400/50 rounded-2xl overflow-hidden hover:bg-white/15 transition-all cursor-pointer"
+              >
+                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                <div class="p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xl font-bold text-white">{{ recipe.title }}</h3>
+                    <span class="text-emerald-400 text-xs font-bold">💎 Purchased</span>
+                  </div>
+                  <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
+                </div>
+              </div>
+            </div>
+            <p v-else class="text-gray-400 text-center py-8">You haven't purchased any recipes yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue';
+import { useQuery } from '@vue/apollo-composable';
+import gql from 'graphql-tag';
+import { jwtDecode } from 'jwt-decode';
+import { useRouter } from 'vue-router';
+
+const router = useRouter();
+
+// Get user from JWT
+const token = useCookie('auth_token');
+const userInfo = computed(() => {
+  if (!token.value) return null;
+  try {
+    return jwtDecode(token.value);
+  } catch {
+    return null;
+  }
+});
+
+const userName = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-name'] || 'User');
+const userEmail = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-email'] || '');
+const userId = computed(() => parseInt(userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-id']) || 0);
+
+// Tabs
+const activeTab = ref('recipes');
+const tabs = [
+  { id: 'recipes', label: 'My Recipes' },
+  { id: 'bookmarked', label: 'Bookmarked' },
+  { id: 'purchased', label: 'Purchased' }
+];
+
+// GraphQL Query for User's Recipes
+const myRecipesQuery = gql`
+  query GetUserRecipes($userId: Int!) {
+    recipes(where: { user_id: { _eq: $userId } }, order_by: { created_at: desc }) {
+      id
+      title
+      description
+      thumbnail_url
+      price
+      preparation_time
+      created_at
+    }
+  }
+`;
+
+const { result: recipesResult } = useQuery(myRecipesQuery, { userId: userId.value });
+const myRecipes = computed(() => recipesResult.value?.recipes || []);
+
+// Fetch Bookmarked Recipes
+const bookmarkedRecipes = ref([]);
+const fetchBookmarkedRecipes = async () => {
+  if (!token.value || !userId.value) return;
+  try {
+    const response = await fetch(`http://localhost:8081/users/${userId.value}/bookmarks`, {
+      headers: { 'Authorization': `Bearer ${token.value}` }
+    });
+    if (response.ok) {
+      bookmarkedRecipes.value = await response.json();
+    }
+  } catch (err) {
+    console.error('Error fetching bookmarks:', err);
+  }
+};
+
+// Fetch Purchased Recipes
+const purchasedRecipes = ref([]);
+const fetchPurchasedRecipes = async () => {
+  if (!token.value || !userId.value) return;
+  try {
+    const response = await fetch(`http://localhost:8081/users/${userId.value}/purchases`, {
+      headers: { 'Authorization': `Bearer ${token.value}` }
+    });
+    if (response.ok) {
+      purchasedRecipes.value = await response.json();
+    }
+  } catch (err) {
+    console.error('Error fetching purchases:', err);
+  }
+};
+
+// Navigate to recipe
+const navigateToRecipe = (recipeId) => {
+  router.push(`/recipes/${recipeId}`);
+};
+
+// Get default image
+const getDefaultImage = (title) => {
+  const t = title?.toLowerCase() || '';
+  if (t.includes('avocado') || t.includes('salad')) {
+    return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80';
+  }
+  if (t.includes('chocolate') || t.includes('cake')) {
+    return 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=800&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=800&q=80';
+};
+
+// Edit Recipe
+const editRecipe = (recipeId) => {
+  router.push(`/recipes/${recipeId}/edit`);
+};
+
+// Delete Recipe
+const deleteRecipe = async (recipeId) => {
+  if (!confirm('Are you sure you want to delete this recipe? This action cannot be undone.')) {
+    return;
+  }
+  
+  if (!token.value) return;
+  
+  try {
+    const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token.value}` }
+    });
+    
+    if (response.ok) {
+      // Remove from local list
+      const index = myRecipes.value.findIndex(r => r.id === recipeId);
+      if (index > -1) {
+        myRecipes.value.splice(index, 1);
+      }
+      alert('Recipe deleted successfully!');
+    } else {
+      const error = await response.json().catch(() => ({}));
+      alert(error.error || 'Failed to delete recipe');
+    }
+  } catch (err) {
+    console.error('Error deleting recipe:', err);
+    alert('Failed to delete recipe');
+  }
+};
+
+// Load data on mount
+onMounted(() => {
+  fetchBookmarkedRecipes();
+  fetchPurchasedRecipes();
+});
+</script>
+

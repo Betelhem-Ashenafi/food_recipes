@@ -1,8 +1,64 @@
 package handlers
 
-import "fmt"
+import (
+	"encoding/json"
+	"foodrecipes/models"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+)
 
-// Example handler function
-func HandleRecipe() {
-	fmt.Println("Handling recipe")
+// GetRecipeIngredientsHandler returns ingredients for a recipe
+func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract recipe ID from URL: /recipes/{id}/ingredients
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	recipeIDStr := parts[2]
+	recipeID, err := strconv.Atoi(recipeIDStr)
+	if err != nil {
+		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		return
+	}
+
+	var ingredients []models.RecipeIngredient
+	err = DB.Select(&ingredients, "SELECT id, recipe_id, name, quantity, unit FROM recipe_ingredients WHERE recipe_id=$1 ORDER BY id", recipeID)
+	if err != nil {
+		log.Printf("Error getting ingredients: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ingredients)
+}
+
+// GetRecipeStepsHandler returns steps for a recipe
+func GetRecipeStepsHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract recipe ID from URL: /recipes/{id}/steps
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	recipeIDStr := parts[2]
+	recipeID, err := strconv.Atoi(recipeIDStr)
+	if err != nil {
+		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		return
+	}
+
+	var steps []models.RecipeStep
+	err = DB.Select(&steps, "SELECT id, recipe_id, step_number, instruction, COALESCE(image_url, '') as image_url FROM recipe_steps WHERE recipe_id=$1 ORDER BY step_number", recipeID)
+	if err != nil {
+		log.Printf("Error getting steps: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(steps)
 }

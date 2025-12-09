@@ -14,46 +14,52 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+
+// contextKey is a custom type for context keys in this package
+type contextKey string
+
+var userIDKey = contextKey("user_id")
+
 var DB *sqlx.DB
 
 // Middleware to validate JWT and extract User ID
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			return
-		}
+       return func(w http.ResponseWriter, r *http.Request) {
+	       authHeader := r.Header.Get("Authorization")
+	       if authHeader == "" {
+		       http.Error(w, "Authorization header required", http.StatusUnauthorized)
+		       return
+	       }
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return []byte("your-secret-key"), nil
-		})
+	       tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	       token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		       if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			       return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		       }
+		       return []byte("your-secret-key"), nil
+	       })
 
-		if err != nil || !token.Valid {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
+	       if err != nil || !token.Valid {
+		       http.Error(w, "Invalid token", http.StatusUnauthorized)
+		       return
+	       }
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
-			return
-		}
+	       claims, ok := token.Claims.(jwt.MapClaims)
+	       if !ok {
+		       http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		       return
+	       }
 
-		userIDFloat, ok := claims["user_id"].(float64)
-		if !ok {
-			http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
-			return
-		}
-		userID := int(userIDFloat)
+	       userIDFloat, ok := claims["user_id"].(float64)
+	       if !ok {
+		       http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
+		       return
+	       }
+	       userID := int(userIDFloat)
 
-		ctx := context.WithValue(r.Context(), "user_id", userID)
-		next(w, r.WithContext(ctx))
-	}
+	       ctx := context.WithValue(r.Context(), userIDKey, userID)
+	       next(w, r.WithContext(ctx))
+       }
 }
 
 func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {

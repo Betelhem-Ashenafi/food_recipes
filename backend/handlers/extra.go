@@ -178,3 +178,95 @@ func FeatureRecipeImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Featured image set successfully"})
 }
+
+// Hasura Action structures for file upload
+type HasuraUploadPayload struct {
+	Action struct {
+		Name string `json:"name"`
+	} `json:"action"`
+	Input struct {
+		Arg struct {
+			File string `json:"file"` // Base64 encoded file or URL
+		} `json:"arg"`
+	} `json:"input"`
+}
+
+type HasuraUploadResponse struct {
+	URL string `json:"url"`
+}
+
+type HasuraUploadErrorResponse struct {
+	Message string `json:"message"`
+	Code    string `json:"code,omitempty"`
+}
+
+// HasuraUploadHandler handles file upload via Hasura Action
+func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// For Hasura actions, we can accept multipart form or JSON
+	// This implementation accepts multipart form (same as REST endpoint)
+	r.ParseMultipartForm(10 << 20) // 10MB limit
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		// Try to parse as Hasura action payload
+		var payload HasuraUploadPayload
+		if jsonErr := json.NewDecoder(r.Body).Decode(&payload); jsonErr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+				Message: "Error retrieving file",
+				Code:    "file_required",
+			})
+			return
+		}
+		// If it's a Hasura action with base64, decode it
+		// For now, return error - implement base64 decoding if needed
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+			Message: "File upload via Hasura action requires multipart form",
+			Code:    "invalid_format",
+		})
+		return
+	}
+	defer file.Close()
+
+	// Create unique filename
+	ext := filepath.Ext(handler.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+
+	// Ensure uploads directory exists
+	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
+		os.Mkdir("uploads", 0755)
+	}
+
+	// Create destination file
+	dst, err := os.Create(filepath.Join("uploads", filename))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+			Message: "Error saving file",
+			Code:    "save_error",
+		})
+		return
+	}
+	defer dst.Close()
+
+	// Copy uploaded file to destination
+	if _, err := io.Copy(dst, file); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+			Message: "Error saving file",
+			Code:    "save_error",
+		})
+		return
+	}
+
+	// Construct URL
+	fileURL := fmt.Sprintf("http://localhost:8081/uploads/%s", filename)
+
+	// Return Hasura action response format
+	json.NewEncoder(w).Encode(HasuraUploadResponse{
+		URL: fileURL,
+	})
+}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"foodrecipes/models"
@@ -9,6 +10,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 )
+
 
 // Struct for login request
 type LoginRequest struct {
@@ -145,18 +147,34 @@ type HasuraErrorResponse struct {
 
 func HasuraLoginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	var payload HasuraActionPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	
+	// Read body once
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid request body"})
 		return
 	}
-
-	req := payload.Input.Arg
+	
+	// Try to parse as Hasura action payload first
+	var payload HasuraActionPayload
+	var req LoginRequest
+	
+	if err2 := json.Unmarshal(bodyBytes, &payload); err2 == nil && payload.Action.Name != "" {
+		// Hasura action format
+		req = payload.Input.Arg
+	} else {
+		// Try regular JSON format (for testing)
+		if err2 := json.Unmarshal(bodyBytes, &req); err2 != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid request body"})
+			return
+		}
+	}
 
 	var user models.User
 	// Query user by email
-	err := DB.Get(&user, "SELECT id, name, email, password, COALESCE(avatar_url, '') as avatar_url FROM users WHERE email=$1", req.Email)
+	err = DB.Get(&user, "SELECT id, name, email, password, COALESCE(avatar_url, '') as avatar_url FROM users WHERE email=$1", req.Email)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest) // Hasura expects 400 for business logic errors
 		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid email or password", Code: "invalid_credentials"})
@@ -184,5 +202,91 @@ func HasuraLoginHandler(w http.ResponseWriter, r *http.Request) {
 		UserID: user.ID,
 		Name:   user.Name,
 		Email:  user.Email,
+	})
+}
+
+// Hasura Signup structures
+type HasuraSignupPayload struct {
+	Action struct {
+		Name string `json:"name"`
+	} `json:"action"`
+	Input struct {
+		Arg SignupRequest `json:"arg"`
+	} `json:"input"`
+}
+
+type HasuraSignupResponse struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func HasuraSignupHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// Read body once
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid request body"})
+		return
+	}
+	
+	// Try to parse as Hasura action payload first
+	var payload HasuraSignupPayload
+	var req SignupRequest
+	
+	if err2 := json.Unmarshal(bodyBytes, &payload); err2 == nil && payload.Action.Name != "" {
+		// Hasura action format
+		req = payload.Input.Arg
+	} else {
+		// Try regular JSON format (for testing)
+		if err2 := json.Unmarshal(bodyBytes, &req); err2 != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Invalid request body"})
+			return
+		}
+	}
+
+	// Check if email already exists
+	var count int
+	err = DB.Get(&count, "SELECT COUNT(*) FROM users WHERE email=$1", req.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Database error"})
+		return
+	}
+	if count > 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Email already registered", Code: "email_exists"})
+		return
+	}
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Could not hash password"})
+		return
+	}
+
+	// Insert new user into database
+	var user models.User
+	err = DB.Get(&user, `
+		INSERT INTO users (name, email, password)
+		VALUES ($1, $2, $3)
+		RETURNING id, name, email
+	`, req.Name, req.Email, string(hashedPassword))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraErrorResponse{Message: "Could not create user"})
+		return
+	}
+
+	// Return response matching SignupOutput type in Hasura
+	json.NewEncoder(w).Encode(HasuraSignupResponse{
+		ID:    user.ID,
+		Name:  user.Name,
+		Email: user.Email,
 	})
 }

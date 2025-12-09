@@ -1,13 +1,13 @@
 <template>
   <div class="relative min-h-screen w-full overflow-hidden flex items-center justify-center px-4">
-    <!-- Background Image with Overlay (Consistent with Welcome Page) -->
+    <!-- Background Image with Overlay -->
     <div class="absolute inset-0 z-0">
       <img 
         src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food" 
-        class="w-full h-full object-cover"
+        class="w-full h-full object-cover brightness-95"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/90"></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 
     <!-- Glassmorphism Card -->
@@ -131,13 +131,15 @@
 <script setup>
 import { Form, Field, ErrorMessage } from 'vee-validate';
 import * as yup from 'yup';
+import { gql } from '@apollo/client/core';
+import { useMutation } from '@vue/apollo-composable';
 
 const router = useRouter();
 const registerError = ref('');
 
 // Redirect if already logged in
 onMounted(() => {
-  const token = useCookie('apollo:default.token');
+  const token = useCookie('auth_token');
   if (token.value) {
     router.push('/home');
   }
@@ -148,39 +150,50 @@ definePageMeta({
   layout: 'blank'
 });
 
-// 1. Define the Validation Rules (Schema)
+// Validation schema
 const schema = yup.object({
   full_name: yup.string().required().label('Full Name'),
   email: yup.string().required().email().label('Email Address'),
   password: yup.string().required().min(6).label('Password'),
 });
 
-// 2. Handle the Form Submit
+// Handle form submit (REAL backend integration)
 const handleRegister = async (values) => {
   registerError.value = '';
   
   try {
-    // Call the Go Backend
-    const { data, error } = await useFetch('http://localhost:8081/signup', {
+    // Call REAL backend signup endpoint that inserts into REAL database
+    const data = await $fetch('http://localhost:8081/signup', {
       method: 'POST',
-      body: {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         name: values.full_name,
         email: values.email,
         password: values.password
-      }
+      })
     });
 
-    if (error.value) {
-      registerError.value = error.value.data || 'Registration failed';
+    if (data?.error) {
+      registerError.value = data.error;
       return;
     }
 
-    // Success! Redirect to login
+    console.log('Signup successful - user created in database:', data);
+    
+    // Success - redirect to login
     router.push('/login');
     
   } catch (err) {
-    registerError.value = 'An unexpected error occurred.';
-    console.error(err);
+    console.error('Signup error:', err);
+    if (err.data?.error) {
+      registerError.value = err.data.error;
+    } else if (err.statusCode === 409) {
+      registerError.value = 'Email already registered in database';
+    } else {
+      registerError.value = 'Registration failed - please try again';
+    }
   }
 };
 </script>

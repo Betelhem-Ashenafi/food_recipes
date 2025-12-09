@@ -1,13 +1,13 @@
 <template>
   <div class="relative min-h-screen w-full overflow-hidden flex items-center justify-center px-4">
-    <!-- Background Image with Overlay (Consistent with Welcome Page) -->
+    <!-- Background Image with Overlay (Unified with Home/Index) -->
     <div class="absolute inset-0 z-0">
       <img 
         src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food" 
-        class="w-full h-full object-cover"
+        class="w-full h-full object-cover brightness-95"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/90"></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 
     <!-- Glassmorphism Card -->
@@ -111,14 +111,15 @@
 <script setup>
 import { Form, Field, ErrorMessage } from 'vee-validate';
 import * as yup from 'yup';
+import { gql } from '@apollo/client/core';
+import { useMutation } from '@vue/apollo-composable';
 
 const router = useRouter();
-const { onLogin } = useApollo();
 const loginError = ref('');
 
 // Redirect if already logged in
 onMounted(() => {
-  const token = useCookie('apollo:default.token');
+  const token = useCookie('auth_token');
   if (token.value) {
     router.push('/home');
   }
@@ -135,37 +136,55 @@ const schema = yup.object({
   password: yup.string().required().min(6).label('Password'),
 });
 
-// 2. Handle the Form Submit
+// 2. Handle the Form Submit (REAL backend integration via REST)
 const handleLogin = async (values) => {
   loginError.value = '';
   
   try {
-    // Call the Go Backend
-    const { data, error } = await useFetch('http://localhost:8081/login', {
+    // Call REAL backend login endpoint that queries REAL database
+    const data = await $fetch('http://localhost:8081/login', {
       method: 'POST',
-      body: {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         email: values.email,
         password: values.password
-      }
+      })
     });
 
-    if (error.value) {
-      loginError.value = error.value.data || 'Invalid email or password';
+    if (data?.error) {
+      loginError.value = data.error;
       return;
     }
 
-    // Success!
-    const token = data.value.token;
-    
-    // Save token for Apollo (Hasura)
-    await onLogin(token);
-
-    // Redirect to Home Feed
-    router.push('/home');
+    if (data?.token) {
+      // Store REAL JWT token in cookie for subsequent requests
+      const cookie = useCookie('auth_token');
+      cookie.value = data.token;
+      
+      // Store user info in localStorage
+      if (data?.user) {
+        localStorage.setItem('user_id', data.user.id);
+        localStorage.setItem('user_name', data.user.name);
+        localStorage.setItem('user_email', data.user.email);
+      }
+      
+      console.log('Login successful - token stored:', data.token.substring(0, 20) + '...');
+      router.push('/home');
+    } else {
+      loginError.value = 'Login failed - no token received';
+    }
     
   } catch (err) {
-    loginError.value = 'An unexpected error occurred.';
-    console.error(err);
+    console.error('Login error:', err);
+    if (err.data?.error) {
+      loginError.value = err.data.error;
+    } else if (err.statusCode === 401) {
+      loginError.value = 'Invalid email or password';
+    } else {
+      loginError.value = 'Login failed - please try again';
+    }
   }
 };
 </script>

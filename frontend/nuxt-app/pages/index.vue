@@ -8,10 +8,10 @@
       <img 
         src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food" 
-        class="w-full h-full object-cover transition-transform duration-[10s] ease-out group-hover:scale-105"
+        class="w-full h-full object-cover brightness-95 transition-transform duration-[10s] ease-out group-hover:scale-105"
       >
-      <!-- Elegant Gradient Overlay -->
-      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/80"></div>
+      <!-- Unified Gradient Overlay -->
+      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
     </div>
 
     <!-- Content -->

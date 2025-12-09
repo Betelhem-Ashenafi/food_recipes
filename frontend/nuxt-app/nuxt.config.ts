@@ -1,19 +1,13 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
-  devtools: { enabled: true },
-  modules: ['@nuxtjs/tailwindcss', '@nuxtjs/apollo'],
+  devtools: { enabled: false }, // Disabled to fix iframe sandbox security warning
+  modules: ['@nuxtjs/tailwindcss'],
 
-  apollo: {
-    clients: {
-      default: {
-        httpEndpoint: 'http://localhost:8080/v1/graphql',
-        tokenStorage: 'localStorage',
-        authHeader: 'Authorization',
-        authType: 'Bearer',
-        // @ts-ignore
-        devtools: { enabled: false }
-      }
-    }
-  }
+  // Fix dev.json and preload issues
+  experimental: {
+    payloadExtraction: false,
+  },
+
+  // Apollo Client is configured via plugin (plugins/apollo.client.ts)
 })

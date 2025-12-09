@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -62,9 +63,85 @@ func main() {
 
 	// Register recipe detail routes (edit/delete)
 	http.HandleFunc("/recipes/", func(w http.ResponseWriter, r *http.Request) {
-		// Check for image upload/feature endpoints first
+		// Check for ingredients/steps endpoints first
 		if len(r.URL.Path) > len("/recipes/") {
 			subPath := r.URL.Path[len("/recipes/"):]
+
+			// Check if it's ingredients request: /recipes/{id}/ingredients
+			if strings.HasSuffix(subPath, "/ingredients") {
+				if r.Method == http.MethodGet {
+					handlers.GetRecipeIngredientsHandler(w, r)
+					return
+				}
+			}
+
+			// Check if it's steps request: /recipes/{id}/steps
+			if strings.HasSuffix(subPath, "/steps") {
+				if r.Method == http.MethodGet {
+					handlers.GetRecipeStepsHandler(w, r)
+					return
+				}
+			}
+
+			// Check if it's like request: /recipes/{id}/like
+			if strings.HasSuffix(subPath, "/like") {
+				handlers.AuthMiddleware(handlers.ToggleLikeHandler)(w, r)
+				return
+			}
+
+			// Check if it's bookmark request: /recipes/{id}/bookmark
+			if strings.HasSuffix(subPath, "/bookmark") {
+				handlers.AuthMiddleware(handlers.ToggleBookmarkHandler)(w, r)
+				return
+			}
+
+			// Check if it's comments request: /recipes/{id}/comments
+			if strings.HasSuffix(subPath, "/comments") {
+				if r.Method == http.MethodGet {
+					handlers.GetCommentsHandler(w, r)
+					return
+				} else if r.Method == http.MethodPost {
+					handlers.AuthMiddleware(handlers.PostCommentHandler)(w, r)
+					return
+				}
+			}
+
+			// Check if it's rate request: /recipes/{id}/rate
+			if strings.HasSuffix(subPath, "/rate") {
+				if r.Method == http.MethodGet {
+					handlers.GetRatingHandler(w, r)
+					return
+				} else if r.Method == http.MethodPost {
+					handlers.AuthMiddleware(handlers.RateRecipeHandler)(w, r)
+					return
+				}
+			}
+
+			// Check if it's like check: /recipes/{id}/like/check
+			if strings.HasSuffix(subPath, "/like/check") {
+				if r.Method == http.MethodGet {
+					handlers.AuthMiddleware(handlers.CheckLikeHandler)(w, r)
+					return
+				}
+			}
+
+			// Check if it's bookmark check: /recipes/{id}/bookmark/check
+			if strings.HasSuffix(subPath, "/bookmark/check") {
+				if r.Method == http.MethodGet {
+					handlers.AuthMiddleware(handlers.CheckBookmarkHandler)(w, r)
+					return
+				}
+			}
+
+			// Check if it's purchase check: /recipes/{id}/purchase/check
+			if strings.HasSuffix(subPath, "/purchase/check") {
+				if r.Method == http.MethodGet {
+					handlers.AuthMiddleware(handlers.CheckPurchaseHandler)(w, r)
+					return
+				}
+			}
+
+			// Check for image upload/feature endpoints
 			// Check if it's an image upload request: /recipes/{id}/images
 			if len(subPath) >= len("/images") && subPath[len(subPath)-len("/images"):] == "/images" {
 				switch r.Method {
@@ -82,54 +159,6 @@ func main() {
 				}
 			}
 
-			// Check for social endpoints
-			// /recipes/{id}/like
-			if len(subPath) >= len("/like") && subPath[len(subPath)-len("/like"):] == "/like" {
-				switch r.Method {
-				case http.MethodPost:
-					handlers.AuthMiddleware(handlers.LikeRecipeHandler)(w, r)
-					return
-				case http.MethodDelete:
-					handlers.AuthMiddleware(handlers.UnlikeRecipeHandler)(w, r)
-					return
-				}
-			}
-
-			// /recipes/{id}/bookmark
-			if len(subPath) >= len("/bookmark") && subPath[len(subPath)-len("/bookmark"):] == "/bookmark" {
-				switch r.Method {
-				case http.MethodPost:
-					handlers.AuthMiddleware(handlers.BookmarkRecipeHandler)(w, r)
-					return
-				case http.MethodDelete:
-					handlers.AuthMiddleware(handlers.UnbookmarkRecipeHandler)(w, r)
-					return
-				}
-			}
-
-			// /recipes/{id}/comments
-			if len(subPath) >= len("/comments") && subPath[len(subPath)-len("/comments"):] == "/comments" {
-				switch r.Method {
-				case http.MethodPost:
-					handlers.AuthMiddleware(handlers.CommentRecipeHandler)(w, r)
-					return
-				case http.MethodGet:
-					handlers.GetCommentsHandler(w, r)
-					return
-				}
-			}
-
-			// /recipes/{id}/rate
-			if len(subPath) >= len("/rate") && subPath[len(subPath)-len("/rate"):] == "/rate" {
-				switch r.Method {
-				case http.MethodPost:
-					handlers.AuthMiddleware(handlers.RateRecipeHandler)(w, r)
-					return
-				case http.MethodGet:
-					handlers.GetRecipeRatingHandler(w, r)
-					return
-				}
-			}
 		}
 
 		switch r.Method {
@@ -161,6 +190,14 @@ func main() {
 
 	// Register Hasura Action routes
 	http.HandleFunc("/hasura/login", handlers.HasuraLoginHandler)
+	http.HandleFunc("/hasura/signup", handlers.HasuraSignupHandler)
+	http.HandleFunc("/hasura/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			handlers.HasuraUploadHandler(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	// Register Hasura Event Trigger routes
 	http.HandleFunc("/events/new-recipe", handlers.NewRecipeEventHandler)

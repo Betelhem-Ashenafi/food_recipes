@@ -59,6 +59,37 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetRecipeImagesHandler - GET /recipes/{id}/images
+// This endpoint is public (no auth required) so anyone can view recipe images
+func GetRecipeImagesHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract recipe ID from URL
+	idStr := strings.TrimPrefix(r.URL.Path, "/recipes/")
+	idStr = strings.TrimSuffix(idStr, "/images")
+	var recipeID int
+	_, err := fmt.Sscanf(idStr, "%d", &recipeID)
+	if err != nil {
+		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		return
+	}
+
+	var images []struct {
+		ID         int    `db:"id" json:"id"`
+		RecipeID   int    `db:"recipe_id" json:"recipe_id"`
+		URL        string `db:"url" json:"url"`
+		IsFeatured bool   `db:"is_featured" json:"is_featured"`
+	}
+	err = DB.Select(&images, "SELECT id, recipe_id, url, is_featured FROM recipe_images WHERE recipe_id=$1 ORDER BY is_featured DESC, id ASC", recipeID)
+	if err != nil {
+		http.Error(w, "Failed to fetch images", http.StatusInternalServerError)
+		return
+	}
+
+	// If no images in recipe_images table, return empty array (not error)
+	// Frontend will fallback to thumbnail_url
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(images)
+}
+
 // UploadRecipeImagesHandler allows uploading multiple image URLs for a recipe
 func UploadRecipeImagesHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract recipe ID from URL

@@ -14,7 +14,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-
 // contextKey is a custom type for context keys in this package
 type contextKey string
 
@@ -24,42 +23,42 @@ var DB *sqlx.DB
 
 // Middleware to validate JWT and extract User ID
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-       return func(w http.ResponseWriter, r *http.Request) {
-	       authHeader := r.Header.Get("Authorization")
-	       if authHeader == "" {
-		       http.Error(w, "Authorization header required", http.StatusUnauthorized)
-		       return
-	       }
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			return
+		}
 
-	       tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	       token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		       if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			       return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		       }
-		       return []byte("your-secret-key"), nil
-	       })
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte("your-secret-key"), nil
+		})
 
-	       if err != nil || !token.Valid {
-		       http.Error(w, "Invalid token", http.StatusUnauthorized)
-		       return
-	       }
+		if err != nil || !token.Valid {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 
-	       claims, ok := token.Claims.(jwt.MapClaims)
-	       if !ok {
-		       http.Error(w, "Invalid token claims", http.StatusUnauthorized)
-		       return
-	       }
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+			return
+		}
 
-	       userIDFloat, ok := claims["user_id"].(float64)
-	       if !ok {
-		       http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
-		       return
-	       }
-	       userID := int(userIDFloat)
+		userIDFloat, ok := claims["user_id"].(float64)
+		if !ok {
+			http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
+			return
+		}
+		userID := int(userIDFloat)
 
-	       ctx := context.WithValue(r.Context(), userIDKey, userID)
-	       next(w, r.WithContext(ctx))
-       }
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next(w, r.WithContext(ctx))
+	}
 }
 
 func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
@@ -90,26 +89,42 @@ func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 
 	userIDFloat, ok := claims["user_id"].(float64)
 	if !ok {
+		log.Printf("[CREATE] Invalid user_id type in token claims: %v", claims["user_id"])
 		http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
 		return
 	}
 	userID := int(userIDFloat)
+	log.Printf("[CREATE] Extracted user_id from token: %d", userID)
 
-	// 2. Parse Request
+	// 2. Verify user exists in database
+	var userExists bool
+	err = DB.Get(&userExists, "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", userID)
+	if err != nil {
+		log.Printf("[CREATE] Error checking user existence: %v", err)
+		http.Error(w, "Database error while verifying user", http.StatusInternalServerError)
+		return
+	}
+	if !userExists {
+		log.Printf("[CREATE] User ID %d from token does not exist in database", userID)
+		http.Error(w, "User not found. Please log in again.", http.StatusUnauthorized)
+		return
+	}
+
+	// 3. Parse Request
 	var req models.CreateRecipeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// 3. Start Transaction
+	// 4. Start Transaction
 	tx, err := DB.Beginx()
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	// 4. Insert Recipe
+	// 5. Insert Recipe
 	var recipeID int
 	err = tx.QueryRow(`
 		INSERT INTO recipes (user_id, category_id, title, description, preparation_time, price, thumbnail_url)
@@ -123,7 +138,7 @@ func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Insert Ingredients
+	// 6. Insert Ingredients
 	for _, ing := range req.Ingredients {
 		_, err = tx.Exec(`
 			INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit)
@@ -136,7 +151,7 @@ func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 6. Insert Steps
+	// 7. Insert Steps
 	for i, step := range req.Steps {
 		_, err = tx.Exec(`
 			INSERT INTO recipe_steps (recipe_id, step_number, instruction, image_url)
@@ -149,7 +164,43 @@ func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 7. Commit
+	// 8. Insert Images (if provided)
+	if len(req.Images) > 0 {
+		// Find featured image (thumbnail_url)
+		featuredURL := req.ThumbnailURL
+		for _, imgURL := range req.Images {
+			if imgURL == "" {
+				continue // Skip empty URLs
+			}
+			isFeatured := (imgURL == featuredURL)
+			_, err = tx.Exec(`
+				INSERT INTO recipe_images (recipe_id, url, is_featured)
+				VALUES ($1, $2, $3)
+			`, recipeID, imgURL, isFeatured)
+			if err != nil {
+				log.Printf("Error inserting image %s: %v", imgURL, err)
+				tx.Rollback()
+				http.Error(w, "Failed to save images: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		log.Printf("Saved %d images for recipe %d", len(req.Images), recipeID)
+	} else if req.ThumbnailURL != "" {
+		// If no images array but thumbnail_url exists, save it as featured
+		_, err = tx.Exec(`
+			INSERT INTO recipe_images (recipe_id, url, is_featured)
+			VALUES ($1, $2, true)
+		`, recipeID, req.ThumbnailURL)
+		if err != nil {
+			log.Printf("Error inserting thumbnail image: %v", err)
+			tx.Rollback()
+			http.Error(w, "Failed to save featured image: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Saved thumbnail image for recipe %d", recipeID)
+	}
+
+	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
@@ -167,8 +218,9 @@ func GetRecipesHandler(w http.ResponseWriter, r *http.Request) {
 	ingredientParam := q.Get("ingredient")
 	titleParam := q.Get("title")
 	creatorParam := q.Get("creator")
+	categoryParam := q.Get("category")
 
-	log.Printf("DEBUG: Filters: time=%s, ingredient=%s, title=%s, creator=%s", timeParam, ingredientParam, titleParam, creatorParam)
+	log.Printf("DEBUG: Filters: time=%s, ingredient=%s, title=%s, creator=%s, category=%s", timeParam, ingredientParam, titleParam, creatorParam, categoryParam)
 
 	// Build base query and args
 	query := "SELECT r.* FROM recipes r"
@@ -188,6 +240,15 @@ func GetRecipesHandler(w http.ResponseWriter, r *http.Request) {
 		// Adjust placeholder index based on current args length
 		where = append(where, fmt.Sprintf("ri.name ILIKE $%d", len(args)+1))
 		args = append(args, "%"+ingredientParam+"%")
+	}
+
+	// Filter by category (category_id)
+	if categoryParam != "" {
+		var categoryID int
+		if _, err := fmt.Sscanf(categoryParam, "%d", &categoryID); err == nil {
+			where = append(where, fmt.Sprintf("r.category_id = $%d", len(args)+1))
+			args = append(args, categoryID)
+		}
 	}
 
 	// Filter by time
@@ -232,6 +293,40 @@ func GetRecipesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(recipes)
 }
 
+// GetRecipeByIDHandler returns a single recipe by ID
+func GetRecipeByIDHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract recipe ID from URL: /recipes/{id}
+	idStr := strings.TrimPrefix(r.URL.Path, "/recipes/")
+	if idStr == "" {
+		http.Error(w, "Recipe ID required", http.StatusBadRequest)
+		return
+	}
+	var recipeID int
+	_, err := fmt.Sscanf(idStr, "%d", &recipeID)
+	if err != nil {
+		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		return
+	}
+
+	var recipe models.Recipe
+	err = DB.Get(&recipe, "SELECT id, user_id, category_id, title, description, preparation_time, price, thumbnail_url, created_at FROM recipes WHERE id=$1", recipeID)
+	if err != nil {
+		log.Printf("Error getting recipe %d: %v", recipeID, err)
+		http.Error(w, "Recipe not found", http.StatusNotFound)
+		return
+	}
+
+	// Fetch images for the recipe
+	var images []models.RecipeImage
+	err = DB.Select(&images, "SELECT id, recipe_id, url, is_featured FROM recipe_images WHERE recipe_id=$1", recipeID)
+	if err == nil {
+		recipe.Images = images
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(recipe)
+}
+
 func GetCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 	var categories []models.Category
 	err := DB.Select(&categories, "SELECT id, name, COALESCE(image_url, '') as image_url FROM categories ORDER BY name ASC")
@@ -247,8 +342,14 @@ func GetCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 
 // EditRecipeHandler allows the owner to update a recipe
 func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
 	// Extract recipe ID from URL
 	idStr := strings.TrimPrefix(r.URL.Path, "/recipes/")
+	// Remove any trailing slashes or paths
+	if idx := strings.Index(idStr, "/"); idx != -1 {
+		idStr = idStr[:idx]
+	}
 	if idStr == "" {
 		http.Error(w, "Recipe ID required", http.StatusBadRequest)
 		return
@@ -257,41 +358,19 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 	var recipeID int
 	_, err := fmt.Sscanf(idStr, "%d", &recipeID)
 	if err != nil {
+		log.Printf("[EDIT] Error parsing recipe ID from path %s: %v", r.URL.Path, err)
 		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("[EDIT] Updating recipe ID: %d", recipeID)
 
-	// Extract user ID from token
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, "Authorization header required", http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte("your-secret-key"), nil
-	})
-
-	if err != nil || !token.Valid {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
+	// Get user ID from context (set by AuthMiddleware)
+	userID, ok := r.Context().Value(userIDKey).(int)
 	if !ok {
-		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		http.Error(w, "User ID not found in context", http.StatusUnauthorized)
 		return
 	}
-
-	userIDFloat, ok := claims["user_id"].(float64)
-	if !ok {
-		http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
-		return
-	}
-	userID := int(userIDFloat)
 
 	// Check recipe ownership
 	var ownerID int
@@ -308,9 +387,13 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse request body
 	var req models.CreateRecipeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("[EDIT] Error decoding request body: %v", err)
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("[EDIT] Request data - Title: %s, CategoryID: %d, Ingredients: %d, Steps: %d", 
+		req.Title, req.CategoryID, len(req.Ingredients), len(req.Steps))
 
 	// Start transaction
 	tx, err := DB.Beginx()
@@ -352,14 +435,41 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Update images (if provided)
+	if len(req.Images) > 0 {
+		// Delete old images
+		_, _ = tx.Exec(`DELETE FROM recipe_images WHERE recipe_id=$1`, recipeID)
+
+		// Insert new images
+		featuredURL := req.ThumbnailURL
+		for _, imgURL := range req.Images {
+			isFeatured := (imgURL == featuredURL)
+			_, err = tx.Exec(`
+				INSERT INTO recipe_images (recipe_id, url, is_featured)
+				VALUES ($1, $2, $3)
+			`, recipeID, imgURL, isFeatured)
+			if err != nil {
+				tx.Rollback()
+				http.Error(w, "Failed to update images", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
 	// Commit
 	if err := tx.Commit(); err != nil {
+		log.Printf("[EDIT] Error committing transaction: %v", err)
 		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[EDIT] Recipe %d updated successfully", recipeID)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"id": recipeID, "message": "Recipe updated successfully"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id": recipeID, 
+		"message": "Recipe updated successfully",
+		"title": req.Title,
+	})
 }
 
 // DeleteRecipeHandler allows the owner to delete a recipe
@@ -428,9 +538,14 @@ func DeleteRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete ingredients and steps
+	// Delete all related data (cascade delete)
+	_, _ = tx.Exec(`DELETE FROM recipe_images WHERE recipe_id=$1`, recipeID)
 	_, _ = tx.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id=$1`, recipeID)
 	_, _ = tx.Exec(`DELETE FROM recipe_steps WHERE recipe_id=$1`, recipeID)
+	_, _ = tx.Exec(`DELETE FROM likes WHERE recipe_id=$1`, recipeID)
+	_, _ = tx.Exec(`DELETE FROM bookmarks WHERE recipe_id=$1`, recipeID)
+	_, _ = tx.Exec(`DELETE FROM comments WHERE recipe_id=$1`, recipeID)
+	_, _ = tx.Exec(`DELETE FROM ratings WHERE recipe_id=$1`, recipeID)
 
 	// Delete recipe
 	_, err = tx.Exec(`DELETE FROM recipes WHERE id=$1`, recipeID)

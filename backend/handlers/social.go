@@ -11,7 +11,7 @@ import (
 // ToggleLikeHandler - POST/DELETE /recipes/{id}/like
 func ToggleLikeHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(userIDKey).(int)
-	
+
 	// Extract recipe ID from URL: /recipes/{id}/like
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	// pathParts should be: ["recipes", "{id}", "like"]
@@ -32,27 +32,27 @@ func ToggleLikeHandler(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, recipe_id) DO NOTHING
 		`, userID, recipeID, time.Now())
-		
+
 		if err != nil {
 			http.Error(w, "Failed to add like", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "liked"})
-		
+
 	} else if r.Method == http.MethodDelete {
 		// Remove like
 		_, err := DB.Exec(`
 			DELETE FROM likes
 			WHERE user_id = $1 AND recipe_id = $2
 		`, userID, recipeID)
-		
+
 		if err != nil {
 			http.Error(w, "Failed to remove like", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unliked"})
 	} else {
@@ -63,7 +63,7 @@ func ToggleLikeHandler(w http.ResponseWriter, r *http.Request) {
 // ToggleBookmarkHandler - POST/DELETE /recipes/{id}/bookmark
 func ToggleBookmarkHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(userIDKey).(int)
-	
+
 	// Extract recipe ID from URL: /recipes/{id}/bookmark
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	// pathParts should be: ["recipes", "{id}", "bookmark"]
@@ -84,27 +84,27 @@ func ToggleBookmarkHandler(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, recipe_id) DO NOTHING
 		`, userID, recipeID, time.Now())
-		
+
 		if err != nil {
 			http.Error(w, "Failed to add bookmark", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "bookmarked"})
-		
+
 	} else if r.Method == http.MethodDelete {
 		// Remove bookmark
 		_, err := DB.Exec(`
 			DELETE FROM bookmarks
 			WHERE user_id = $1 AND recipe_id = $2
 		`, userID, recipeID)
-		
+
 		if err != nil {
 			http.Error(w, "Failed to remove bookmark", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unbookmarked"})
 	} else {
@@ -145,7 +145,7 @@ func GetCommentsHandler(w http.ResponseWriter, r *http.Request) {
 		WHERE c.recipe_id = $1
 		ORDER BY c.created_at DESC
 	`, recipeID)
-	
+
 	if err != nil {
 		http.Error(w, "Failed to fetch comments", http.StatusInternalServerError)
 		return
@@ -158,7 +158,7 @@ func GetCommentsHandler(w http.ResponseWriter, r *http.Request) {
 // PostCommentHandler - POST /recipes/{id}/comments
 func PostCommentHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(userIDKey).(int)
-	
+
 	// Extract recipe ID from URL: /recipes/{id}/comments
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	// pathParts should be: ["recipes", "{id}", "comments"]
@@ -175,7 +175,7 @@ func PostCommentHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Content string `json:"content"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -192,7 +192,7 @@ func PostCommentHandler(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4)
 		RETURNING id
 	`, userID, recipeID, payload.Content, time.Now()).Scan(&commentID)
-	
+
 	if err != nil {
 		http.Error(w, "Failed to post comment", http.StatusInternalServerError)
 		return
@@ -205,7 +205,7 @@ func PostCommentHandler(w http.ResponseWriter, r *http.Request) {
 // RateRecipeHandler - POST /recipes/{id}/rate
 func RateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(userIDKey).(int)
-	
+
 	// Extract recipe ID from URL: /recipes/{id}/rate
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	// pathParts should be: ["recipes", "{id}", "rate"]
@@ -222,7 +222,7 @@ func RateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Rating int `json:"rating"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -237,9 +237,9 @@ func RateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO ratings (user_id, recipe_id, rating, created_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (user_id, recipe_id)
-		DO UPDATE SET rating = $3, updated_at = $4
+		DO UPDATE SET rating = $3, created_at = $4
 	`, userID, recipeID, payload.Rating, time.Now())
-	
+
 	if err != nil {
 		http.Error(w, "Failed to save rating", http.StatusInternalServerError)
 		return
@@ -268,7 +268,7 @@ func GetRatingHandler(w http.ResponseWriter, r *http.Request) {
 		AverageRating float64 `json:"average_rating" db:"avg"`
 		Count         int     `json:"count" db:"count"`
 	}
-	
+
 	err = DB.Get(&result, `
 		SELECT 
 			COALESCE(AVG(rating), 0) as avg,
@@ -276,7 +276,7 @@ func GetRatingHandler(w http.ResponseWriter, r *http.Request) {
 		FROM ratings
 		WHERE recipe_id = $1
 	`, recipeID)
-	
+
 	if err != nil {
 		http.Error(w, "Failed to fetch rating", http.StatusInternalServerError)
 		return

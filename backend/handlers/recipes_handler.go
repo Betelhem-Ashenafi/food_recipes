@@ -12,15 +12,14 @@ import (
 // GetRecipeIngredientsHandler returns ingredients for a recipe
 func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract recipe ID from URL: /recipes/{id}/ingredients
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 3 {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
-		return
-	}
-	recipeIDStr := parts[2]
-	recipeID, err := strconv.Atoi(recipeIDStr)
+	// URL path: /recipes/1/ingredients
+	// Split by "/" gives: ["", "recipes", "1", "ingredients"]
+	path := strings.TrimPrefix(r.URL.Path, "/recipes/")
+	path = strings.TrimSuffix(path, "/ingredients")
+	recipeID, err := strconv.Atoi(path)
 	if err != nil {
-		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		log.Printf("Error parsing recipe ID from path %s: %v", r.URL.Path, err)
+		http.Error(w, "Invalid recipe ID: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -39,15 +38,14 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
 // GetRecipeStepsHandler returns steps for a recipe
 func GetRecipeStepsHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract recipe ID from URL: /recipes/{id}/steps
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 3 {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
-		return
-	}
-	recipeIDStr := parts[2]
-	recipeID, err := strconv.Atoi(recipeIDStr)
+	// URL path: /recipes/1/steps
+	// Split by "/" gives: ["", "recipes", "1", "steps"]
+	path := strings.TrimPrefix(r.URL.Path, "/recipes/")
+	path = strings.TrimSuffix(path, "/steps")
+	recipeID, err := strconv.Atoi(path)
 	if err != nil {
-		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		log.Printf("Error parsing recipe ID from path %s: %v", r.URL.Path, err)
+		http.Error(w, "Invalid recipe ID: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

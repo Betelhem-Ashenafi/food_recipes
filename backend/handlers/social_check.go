@@ -97,3 +97,8 @@ func CheckPurchaseHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"purchased": count > 0})
 }
 
+
+
+
+
+

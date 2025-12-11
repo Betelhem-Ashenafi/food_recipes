@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	graphql "github.com/hasura/go-graphql-client"
@@ -66,6 +67,18 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 	var req InitializePaymentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Amount == "" || req.Email == "" || req.FirstName == "" || req.LastName == "" || req.RecipeID == 0 {
+		http.Error(w, "Missing required fields: amount, email, first_name, last_name, recipe_id", http.StatusBadRequest)
+		return
+	}
+
+	// Validate email format (basic check)
+	if !strings.Contains(req.Email, "@") {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
 		return
 	}
 

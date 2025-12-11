@@ -20,13 +20,14 @@ type ProfileRecipe struct {
 
 // GetUserBookmarksHandler - GET /users/{id}/bookmarks
 func GetUserBookmarksHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract user ID from URL
-	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 4 {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
+	// Extract user ID from URL: /users/{id}/bookmarks
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// pathParts should be: ["users", "{id}", "bookmarks"]
+	if len(pathParts) < 3 || pathParts[0] != "users" || pathParts[2] != "bookmarks" {
+		http.Error(w, "Invalid URL format", http.StatusBadRequest)
 		return
 	}
-	userID, err := strconv.Atoi(pathParts[2])
+	userID, err := strconv.Atoi(pathParts[1])
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
@@ -52,13 +53,14 @@ func GetUserBookmarksHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetUserPurchasesHandler - GET /users/{id}/purchases
 func GetUserPurchasesHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract user ID from URL
-	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 4 {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
+	// Extract user ID from URL: /users/{id}/purchases
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// pathParts should be: ["users", "{id}", "purchases"]
+	if len(pathParts) < 3 || pathParts[0] != "users" || pathParts[2] != "purchases" {
+		http.Error(w, "Invalid URL format", http.StatusBadRequest)
 		return
 	}
-	userID, err := strconv.Atoi(pathParts[2])
+	userID, err := strconv.Atoi(pathParts[1])
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
@@ -81,4 +83,5 @@ func GetUserPurchasesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(recipes)
 }
+
 

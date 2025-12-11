@@ -7,7 +7,8 @@ export default defineNuxtPlugin((nuxtApp) => {
   const authLink = setContext((_, { headers }) => {
     let token = '';
     if (process.client) {
-      token = useCookie('auth_token').value ?? '';
+      const cookie = useCookie('auth_token');
+      token = cookie.value ?? '';
     }
     const newHeaders: Record<string, string> = { ...headers } as Record<string, string>;
     // Only include Authorization when a token is present

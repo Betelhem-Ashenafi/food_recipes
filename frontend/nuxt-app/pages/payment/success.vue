@@ -45,7 +45,8 @@ const recipe = ref(null);
 const verifyPayment = async () => {
   const txRef = route.query.tx_ref;
   if (!txRef) {
-    console.error('No transaction reference');
+    // No transaction reference - this is normal if user navigated directly or payment was already processed
+    // Silently skip verification
     return;
   }
 
@@ -91,4 +92,5 @@ onMounted(() => {
   verifyPayment();
 });
 </script>
+
 

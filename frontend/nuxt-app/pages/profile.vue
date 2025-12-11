@@ -60,8 +60,9 @@
                     <h3 class="text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">{{ recipe.title }}</h3>
                     <div class="flex gap-2">
                       <button
-                        @click.stop="editRecipe(recipe.id)"
-                        class="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg transition-colors"
+                        @click.stop.prevent="editRecipe(recipe.id, $event)"
+                        type="button"
+                        class="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg transition-colors z-10 relative"
                         title="Edit Recipe"
                       >
                         <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,7 +115,7 @@
           <!-- Purchased -->
           <div v-if="activeTab === 'purchased'">
             <h2 class="text-2xl font-bold text-white mb-6">Purchased Recipes</h2>
-            <div v-if="purchasedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div v-if="purchasedRecipes && purchasedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div
                 v-for="recipe in purchasedRecipes"
                 :key="recipe.id"
@@ -140,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
 import { jwtDecode } from 'jwt-decode';
@@ -148,20 +149,43 @@ import { useRouter } from 'vue-router';
 
 const router = useRouter();
 
-// Get user from JWT
+// Get user from JWT - always return safe object structure
 const token = useCookie('auth_token');
 const userInfo = computed(() => {
-  if (!token.value) return null;
+  if (!token.value) return {};
   try {
-    return jwtDecode(token.value);
+    const decoded = jwtDecode(token.value);
+    // Ensure we always return an object with safe structure
+    if (!decoded || typeof decoded !== 'object') return {};
+    // Ensure claims is always an object, not null
+    if (decoded['https://hasura.io/jwt/claims']) {
+      if (typeof decoded['https://hasura.io/jwt/claims'] !== 'object' || decoded['https://hasura.io/jwt/claims'] === null) {
+        decoded['https://hasura.io/jwt/claims'] = {};
+      }
+    } else {
+      decoded['https://hasura.io/jwt/claims'] = {};
+    }
+    return decoded;
   } catch {
-    return null;
+    return {};
   }
 });
 
-const userName = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-name'] || 'User');
-const userEmail = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-email'] || '');
-const userId = computed(() => parseInt(userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-id']) || 0);
+const userName = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return 'User';
+  return claims['x-hasura-user-name'] || 'User';
+});
+const userEmail = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return '';
+  return claims['x-hasura-user-email'] || '';
+});
+const userId = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return 0;
+  return parseInt(claims['x-hasura-user-id']) || 0;
+});
 
 // Tabs
 const activeTab = ref('recipes');
@@ -186,38 +210,59 @@ const myRecipesQuery = gql`
   }
 `;
 
-const { result: recipesResult } = useQuery(myRecipesQuery, { userId: userId.value });
+const { result: recipesResult, refetch: refetchMyRecipes } = useQuery(myRecipesQuery, { userId: userId.value });
 const myRecipes = computed(() => recipesResult.value?.recipes || []);
+
+// Function to refetch recipes
+const fetchMyRecipes = async () => {
+  if (refetchMyRecipes) {
+    await refetchMyRecipes();
+  }
+};
 
 // Fetch Bookmarked Recipes
 const bookmarkedRecipes = ref([]);
 const fetchBookmarkedRecipes = async () => {
-  if (!token.value || !userId.value) return;
+  if (!token.value || !userId.value) {
+    bookmarkedRecipes.value = [];
+    return;
+  }
   try {
     const response = await fetch(`http://localhost:8081/users/${userId.value}/bookmarks`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
     });
     if (response.ok) {
-      bookmarkedRecipes.value = await response.json();
+      const data = await response.json();
+      bookmarkedRecipes.value = data || [];
+    } else {
+      bookmarkedRecipes.value = [];
     }
   } catch (err) {
     console.error('Error fetching bookmarks:', err);
+    bookmarkedRecipes.value = [];
   }
 };
 
 // Fetch Purchased Recipes
 const purchasedRecipes = ref([]);
 const fetchPurchasedRecipes = async () => {
-  if (!token.value || !userId.value) return;
+  if (!token.value || !userId.value) {
+    purchasedRecipes.value = [];
+    return;
+  }
   try {
     const response = await fetch(`http://localhost:8081/users/${userId.value}/purchases`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
     });
     if (response.ok) {
-      purchasedRecipes.value = await response.json();
+      const data = await response.json();
+      purchasedRecipes.value = data || [];
+    } else {
+      purchasedRecipes.value = [];
     }
   } catch (err) {
     console.error('Error fetching purchases:', err);
+    purchasedRecipes.value = [];
   }
 };
 
@@ -239,7 +284,12 @@ const getDefaultImage = (title) => {
 };
 
 // Edit Recipe
-const editRecipe = (recipeId) => {
+const editRecipe = (recipeId, event) => {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  console.log('[PROFILE] Edit button clicked for recipe:', recipeId);
   router.push(`/recipes/${recipeId}/edit`);
 };
 
@@ -249,33 +299,56 @@ const deleteRecipe = async (recipeId) => {
     return;
   }
   
-  if (!token.value) return;
+  if (!token.value) {
+    router.push('/login');
+    return;
+  }
   
   try {
+    console.log(`[DELETE] Deleting recipe ${recipeId}`);
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token.value}` }
+      headers: { 
+        'Authorization': `Bearer ${token.value}`,
+        'Content-Type': 'application/json'
+      }
     });
     
+    console.log(`[DELETE] Response status: ${response.status}`);
+    
     if (response.ok) {
-      // Remove from local list
-      const index = myRecipes.value.findIndex(r => r.id === recipeId);
-      if (index > -1) {
-        myRecipes.value.splice(index, 1);
-      }
+      console.log(`[DELETE] Recipe ${recipeId} deleted successfully`);
+      // Refetch recipes to update the list
+      await fetchMyRecipes();
       alert('Recipe deleted successfully!');
     } else {
-      const error = await response.json().catch(() => ({}));
-      alert(error.error || 'Failed to delete recipe');
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[DELETE] Error response:', errorData);
+      alert(errorData.error || 'Failed to delete recipe');
     }
   } catch (err) {
-    console.error('Error deleting recipe:', err);
-    alert('Failed to delete recipe');
+    console.error('[DELETE] Exception:', err);
+    alert('Failed to delete recipe. Please check if backend is running.');
   }
 };
 
+// Watch for tab changes to refresh data
+watch(activeTab, (newTab) => {
+  if (newTab === 'bookmarked') {
+    fetchBookmarkedRecipes();
+  } else if (newTab === 'purchased') {
+    fetchPurchasedRecipes();
+  }
+});
+
 // Load data on mount
 onMounted(() => {
+  // Redirect if not logged in
+  if (!token.value) {
+    router.push('/login');
+    return;
+  }
+  
   fetchBookmarkedRecipes();
   fetchPurchasedRecipes();
 });

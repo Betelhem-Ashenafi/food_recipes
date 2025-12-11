@@ -64,17 +64,68 @@
             <!-- Category & Time -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Category</label>
+                <label class="block text-sm font-medium text-gray-300 mb-3">Category</label>
+                
+                <!-- Visual Category Selector -->
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                  <button
+                    v-for="cat in categories"
+                    :key="cat.id"
+                    type="button"
+                    @click="selectedCategoryId = cat.id"
+                    :class="[
+                      'group relative overflow-hidden rounded-lg border-2 transition-all duration-300 transform hover:scale-105',
+                      selectedCategoryId === cat.id
+                        ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/30'
+                        : 'border-white/20 hover:border-white/40'
+                    ]"
+                  >
+                    <!-- Category Image -->
+                    <div class="relative h-20 md:h-24 overflow-hidden">
+                      <img 
+                        v-if="cat.image_url"
+                        :src="cat.image_url" 
+                        :alt="cat.name"
+                        class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        @error="(e) => e.target.style.display = 'none'"
+                      />
+                      <!-- Fallback gradient if no image -->
+                      <div 
+                        v-else
+                        class="w-full h-full bg-gradient-to-br from-emerald-500/40 via-teal-500/40 to-blue-500/40 flex items-center justify-center"
+                      >
+                        <span class="text-3xl">{{ getCategoryEmoji(cat.name) }}</span>
+                      </div>
+                      
+                      <!-- Overlay gradient -->
+                      <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+                      
+                      <!-- Category Name -->
+                      <div class="absolute bottom-0 left-0 right-0 p-2 text-center">
+                        <p class="text-white font-semibold text-xs drop-shadow-lg">{{ cat.name }}</p>
+                      </div>
+                      
+                      <!-- Selected Checkmark -->
+                      <div v-if="selectedCategoryId === cat.id" class="absolute top-1 right-1">
+                        <div class="bg-emerald-500 rounded-full p-1 shadow-lg">
+                          <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+                
+                <!-- Hidden Field for Form Validation - sync with selectedCategoryId -->
                 <Field 
                   name="category_id" 
-                  as="select"
-                  class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  :class="{ 'border-red-500 focus:ring-red-500': errors.category_id }"
-                >
-                  <option value="">Select a category</option>
-                  <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
-                </Field>
+                  :model-value="selectedCategoryId"
+                  @update:model-value="selectedCategoryId = $event"
+                  type="hidden"
+                />
                 <ErrorMessage name="category_id" class="text-red-400 text-xs mt-1" />
+                <p v-if="!selectedCategoryId" class="text-yellow-400 text-xs mt-1">⚠️ Please select a category</p>
               </div>
 
               <div>
@@ -105,43 +156,74 @@
             </div>
           </div>
 
-          <!-- Thumbnail Image -->
+          <!-- Multiple Images with Featured Selection -->
           <div class="mb-8">
             <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
-              <span class="text-emerald-400 mr-2">📸</span> Featured Image
+              <span class="text-emerald-400 mr-2">📸</span> Recipe Images
             </h2>
+            <p class="text-gray-300 text-sm mb-4">Upload multiple images and select one as featured (thumbnail)</p>
             
-            <div class="border-2 border-dashed border-white/30 rounded-lg p-8 text-center hover:border-emerald-400/50 transition-colors">
+            <!-- Image Upload Area -->
+            <div class="border-2 border-dashed border-white/30 rounded-lg p-6 text-center hover:border-emerald-400/50 transition-colors mb-4">
               <input 
                 type="file" 
-                @change="handleImageUpload" 
+                @change="handleMultipleImageUpload" 
                 accept="image/*"
+                multiple
                 class="hidden" 
                 ref="imageInput"
               />
               
-              <div v-if="!thumbnailUrl" @click="$refs.imageInput.click()" class="cursor-pointer">
+              <div @click="$refs.imageInput.click()" class="cursor-pointer">
                 <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                   <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                <p class="mt-2 text-sm text-gray-300">Click to upload featured image</p>
-                <p class="text-xs text-gray-400 mt-1">PNG, JPG, GIF up to 10MB</p>
-              </div>
-
-              <div v-else class="relative">
-                <img :src="thumbnailUrl" alt="Preview" class="max-h-64 mx-auto rounded-lg" />
-                <button 
-                  type="button"
-                  @click="thumbnailUrl = ''; $refs.imageInput.value = ''"
-                  class="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
-                >
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <p class="mt-2 text-sm text-gray-300">Click to upload images</p>
+                <p class="text-xs text-gray-400 mt-1">PNG, JPG, GIF up to 10MB each (multiple files allowed)</p>
               </div>
             </div>
-            <p v-if="uploadingImage" class="text-emerald-400 text-sm mt-2">Uploading image...</p>
+            <p v-if="uploadingImage" class="text-emerald-400 text-sm mb-4">Uploading images...</p>
+
+            <!-- Uploaded Images Grid -->
+            <div v-if="uploadedImages.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div 
+                v-for="(img, index) in uploadedImages" 
+                :key="index"
+                class="relative group"
+              >
+                <div class="relative">
+                  <img :src="img.url" :alt="`Image ${index + 1}`" class="w-full h-32 object-cover rounded-lg border-2" :class="img.isFeatured ? 'border-emerald-500' : 'border-white/20'" />
+                  
+                  <!-- Featured Badge -->
+                  <div v-if="img.isFeatured" class="absolute top-2 left-2 bg-emerald-500 text-white px-2 py-1 rounded text-xs font-bold">
+                    ⭐ Featured
+                  </div>
+                  
+                  <!-- Actions -->
+                  <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+                    <button
+                      v-if="!img.isFeatured"
+                      @click="setFeaturedImage(index)"
+                      class="px-3 py-1 bg-emerald-500 text-white rounded text-xs hover:bg-emerald-600"
+                      title="Set as featured"
+                    >
+                      Set Featured
+                    </button>
+                    <button
+                      @click="removeImage(index)"
+                      class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
+                      title="Remove image"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <p v-if="uploadedImages.length === 0 && !uploadingImage" class="text-gray-400 text-sm text-center py-4">
+              No images uploaded yet. Upload at least one image and select it as featured.
+            </p>
           </div>
 
           <!-- Ingredients -->
@@ -258,7 +340,7 @@ import * as yup from 'yup';
 const router = useRouter();
 const createError = ref('');
 const imageInput = ref(null);
-const thumbnailUrl = ref('');
+const uploadedImages = ref([]); // Array of {url: string, isFeatured: boolean}
 const uploadingImage = ref(false);
 
 // Redirect if not logged in
@@ -272,13 +354,36 @@ onMounted(() => {
 
 // Fetch Categories
 const categories = ref([]);
+const selectedCategoryId = ref(null);
 const fetchCategories = async () => {
   try {
-    const { data } = await useFetch('http://localhost:8081/categories');
-    categories.value = data.value || [];
+    const data = await $fetch('http://localhost:8081/categories');
+    categories.value = data || [];
   } catch (err) {
     console.error('Error fetching categories:', err);
   }
+};
+
+// Get Category Emoji (fallback when image is not available)
+const getCategoryEmoji = (name) => {
+  const emojiMap = {
+    'Italian': '🍝',
+    'Mexican': '🌮',
+    'Asian': '🍜',
+    'Dessert': '🍰',
+    'Breakfast': '🥞',
+    'Lunch': '🥗',
+    'Dinner': '🍽️',
+    'Vegetarian': '🥬',
+    'Vegan': '🌱',
+    'Seafood': '🐟',
+    'Pasta': '🍝',
+    'Pizza': '🍕',
+    'Salad': '🥗',
+    'Soup': '🍲',
+    'Beverage': '🥤',
+  };
+  return emojiMap[name] || '🍳';
 };
 
 // Dynamic Ingredients
@@ -315,42 +420,94 @@ const removeStep = (index) => {
 const schema = yup.object({
   title: yup.string().required().min(3).label('Title'),
   description: yup.string().required().min(10).label('Description'),
-  category_id: yup.number().required().label('Category'),
+  category_id: yup.mixed().test('required', 'Category is required', function(value) {
+    // Check both the form value and the selectedCategoryId
+    const catId = value || selectedCategoryId.value;
+    return catId !== null && catId !== undefined && catId !== '' && catId !== 0;
+  }).label('Category'),
   preparation_time: yup.number().required().min(1).label('Preparation Time'),
   price: yup.number().min(0).label('Price'),
 });
 
-// Handle Image Upload
-const handleImageUpload = async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
+// Handle Multiple Image Upload
+const handleMultipleImageUpload = async (event) => {
+  const files = Array.from(event.target.files);
+  if (files.length === 0) return;
 
   uploadingImage.value = true;
-  const formData = new FormData();
-  formData.append('file', file);
+  createError.value = '';
 
   try {
-    const response = await fetch('http://localhost:8081/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token.value}`
-      },
-      body: formData
+    // Upload all files
+    const uploadPromises = files.map(async (file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('http://localhost:8081/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token.value}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to upload ${file.name}`);
+      }
+
+      const data = await response.json();
+      return { url: data.url, isFeatured: false };
     });
 
-    const data = await response.json();
-    thumbnailUrl.value = data.url;
+    const uploaded = await Promise.all(uploadPromises);
+    
+    // Add to uploadedImages array
+    uploadedImages.value.push(...uploaded);
+    
+    // If this is the first image, set it as featured automatically
+    if (uploadedImages.value.length === uploaded.length) {
+      uploadedImages.value[0].isFeatured = true;
+    }
   } catch (err) {
-    createError.value = 'Failed to upload image';
+    createError.value = err.message || 'Failed to upload images';
     console.error(err);
   } finally {
     uploadingImage.value = false;
+    // Reset input
+    if (event.target) {
+      event.target.value = '';
+    }
+  }
+};
+
+// Set Featured Image
+const setFeaturedImage = (index) => {
+  // Unset all featured
+  uploadedImages.value.forEach(img => img.isFeatured = false);
+  // Set selected as featured
+  uploadedImages.value[index].isFeatured = true;
+};
+
+// Remove Image
+const removeImage = (index) => {
+  const removed = uploadedImages.value.splice(index, 1)[0];
+  // If removed was featured and there are other images, set first as featured
+  if (removed.isFeatured && uploadedImages.value.length > 0) {
+    uploadedImages.value[0].isFeatured = true;
   }
 };
 
 // Handle Form Submit
 const handleCreateRecipe = async (values) => {
   createError.value = '';
+
+  // Use selectedCategoryId if category_id from form is missing
+  const categoryId = values.category_id || selectedCategoryId.value;
+  
+  if (!categoryId || categoryId === 0) {
+    createError.value = 'Please select a category';
+    return;
+  }
 
   // Validate ingredients
   const validIngredients = ingredients.value.filter(ing => ing.name.trim() !== '');
@@ -366,24 +523,35 @@ const handleCreateRecipe = async (values) => {
     return;
   }
 
-  // Validate image
-  if (!thumbnailUrl.value) {
-    createError.value = 'Please upload a featured image';
+  // Validate images
+  if (uploadedImages.value.length === 0) {
+    createError.value = 'Please upload at least one image';
+    return;
+  }
+
+  // Find featured image
+  const featuredImage = uploadedImages.value.find(img => img.isFeatured);
+  if (!featuredImage) {
+    createError.value = 'Please select a featured image';
     return;
   }
 
   const recipeData = {
-    category_id: parseInt(values.category_id),
+    category_id: parseInt(categoryId),
     title: values.title,
     description: values.description,
     preparation_time: parseInt(values.preparation_time),
     price: parseFloat(values.price) || 0,
-    thumbnail_url: thumbnailUrl.value,
+    thumbnail_url: featuredImage.url, // Use featured image as thumbnail
     ingredients: validIngredients,
-    steps: validSteps
+    steps: validSteps,
+    images: uploadedImages.value.map(img => img.url) // All images for later upload
   };
 
   try {
+    console.log('[CREATE] Submitting recipe:', recipeData);
+    console.log('[CREATE] Token present:', !!token.value);
+    
     const response = await fetch('http://localhost:8081/recipes', {
       method: 'POST',
       headers: {
@@ -393,18 +561,33 @@ const handleCreateRecipe = async (values) => {
       body: JSON.stringify(recipeData)
     });
 
+    console.log('[CREATE] Response status:', response.status);
+
     if (!response.ok) {
       const errorData = await response.text();
+      console.error('[CREATE] Error response:', errorData);
       throw new Error(errorData || 'Failed to create recipe');
     }
 
     const data = await response.json();
+    console.log('[CREATE] Recipe created successfully:', data);
+    
+    if (!data || !data.id) {
+      throw new Error('Recipe created but no ID returned');
+    }
+    
+    // Show success message
+    alert('Recipe created successfully! Redirecting to your recipe...');
     
     // Success - redirect to recipe detail page
-    router.push(`/recipes/${data.id}`);
+    await router.push(`/recipes/${data.id}`);
   } catch (err) {
     createError.value = err.message || 'An error occurred while creating the recipe';
-    console.error(err);
+    console.error('[CREATE] Exception:', err);
+    console.error('[CREATE] Full error:', err);
+    
+    // Don't navigate on error - stay on create page to show error
+    alert('Failed to create recipe: ' + err.message);
   }
 };
 </script>

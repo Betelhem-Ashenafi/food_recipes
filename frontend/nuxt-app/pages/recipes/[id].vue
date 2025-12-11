@@ -28,9 +28,54 @@
 
     <!-- Recipe Content -->
     <div v-else-if="recipe" class="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-      <!-- Hero Image -->
-      <div class="mb-8 rounded-2xl overflow-hidden shadow-2xl">
+      <!-- Image Gallery with Navigation -->
+      <div class="mb-8 rounded-2xl overflow-hidden shadow-2xl relative">
+        <div v-if="recipeImages.length > 0" class="relative">
+          <!-- Main Image Display -->
+          <img 
+            :src="recipeImages[currentImageIndex].url" 
+            :alt="recipe.title"
+            class="w-full h-96 object-cover transition-opacity duration-300"
+          >
+          
+          <!-- Navigation Arrows (only if more than 1 image) -->
+          <div v-if="recipeImages.length > 1" class="absolute inset-0 flex items-center justify-between p-4">
+            <button
+              @click="previousImage"
+              class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-full transition-all"
+              :disabled="currentImageIndex === 0"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              @click="nextImage"
+              class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-full transition-all"
+              :disabled="currentImageIndex === recipeImages.length - 1"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          
+          <!-- Image Indicators -->
+          <div v-if="recipeImages.length > 1" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
+            <div
+              v-for="(img, index) in recipeImages"
+              :key="index"
+              class="h-2 rounded-full transition-all"
+              :class="index === currentImageIndex ? 'w-8 bg-white' : 'w-2 bg-white/50'"
+            ></div>
+          </div>
+          
+          <!-- Featured Badge -->
+        </div>
+        
+        <!-- Fallback if no images -->
         <img 
+          v-else
           :src="recipe.thumbnail_url || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80'" 
           :alt="recipe.title"
           class="w-full h-96 object-cover"
@@ -72,14 +117,27 @@
             </div>
           </div>
 
-          <!-- Price Badge -->
-          <div class="ml-4">
+          <!-- Price Badge & Actions -->
+          <div class="ml-4 flex flex-col items-end gap-3">
             <div v-if="recipe.price > 0" class="bg-emerald-500 text-white px-6 py-3 rounded-full text-xl font-bold shadow-lg">
               💎 {{ recipe.price }} Credits
             </div>
             <div v-else class="bg-green-500 text-white px-6 py-3 rounded-full text-xl font-bold shadow-lg">
               Free
             </div>
+            
+            <!-- Edit Button (only for owner) -->
+            <button
+              v-if="isAuthenticated && isOwner"
+              @click="router.push(`/recipes/${recipeId}/edit`)"
+              class="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 rounded-lg transition-colors flex items-center gap-2"
+              title="Edit Recipe"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit Recipe
+            </button>
           </div>
         </div>
 
@@ -89,7 +147,7 @@
         </p>
 
         <!-- Social Actions -->
-        <div v-if="isAuthenticated" class="flex gap-4 mb-8 pb-8 border-b border-white/20">
+        <div class="flex gap-4 mb-8 pb-8 border-b border-white/20">
           <button 
             @click="toggleLike"
             :disabled="actionLoading"
@@ -129,9 +187,19 @@
 
         <!-- Category -->
         <div class="mb-6">
-          <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-emerald-500/30 text-emerald-300 border border-emerald-400/50">
-            {{ recipe.category?.name || 'Uncategorized' }}
-          </span>
+          <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full text-sm font-medium bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 backdrop-blur-sm">
+            <!-- Category Image -->
+            <div v-if="recipe.category?.image_url" class="w-8 h-8 rounded-full overflow-hidden border-2 border-emerald-400/50 flex-shrink-0">
+              <img 
+                :src="recipe.category.image_url" 
+                :alt="recipe.category.name"
+                class="w-full h-full object-cover"
+                @error="(e) => e.target.style.display = 'none'"
+              />
+            </div>
+            <!-- Category Name -->
+            <span>{{ recipe.category?.name || 'Uncategorized' }}</span>
+          </div>
         </div>
       </div>
 
@@ -178,9 +246,9 @@
       </div>
 
       <!-- Rating Section -->
-      <div v-if="isAuthenticated" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-2xl font-bold text-white mb-4">Rate this Recipe</h2>
-        <div class="flex items-center gap-2">
+        <div v-if="isAuthenticated" class="flex items-center gap-2">
           <button 
             v-for="star in 5" 
             :key="star"
@@ -198,7 +266,10 @@
             </svg>
           </button>
         </div>
-        <p v-if="ratingSuccess" class="text-emerald-400 text-sm mt-2">Rating submitted!</p>
+        <div v-else class="p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg text-center">
+          <p class="text-white">Please <NuxtLink to="/login" class="text-emerald-400 hover:text-emerald-300 font-semibold underline">log in</NuxtLink> to rate this recipe.</p>
+        </div>
+        <p v-if="ratingSuccess && isAuthenticated" class="text-emerald-400 text-sm mt-2">Rating submitted!</p>
       </div>
 
       <!-- Comments Section -->
@@ -222,6 +293,9 @@
           >
             {{ commentLoading ? 'Posting...' : 'Post Comment' }}
           </button>
+        </div>
+        <div v-else class="mb-8 p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg text-center">
+          <p class="text-white mb-3">Please <NuxtLink to="/login" class="text-emerald-400 hover:text-emerald-300 font-semibold underline">log in</NuxtLink> to comment on this recipe.</p>
         </div>
 
         <!-- Comments List -->
@@ -267,17 +341,46 @@ const recipeId = parseInt(route.params.id);
 const token = useCookie('auth_token');
 const isAuthenticated = computed(() => !!token.value);
 
-// Get user info from JWT
+// Get user info from JWT - always return safe object structure
 const userInfo = computed(() => {
-  if (!token.value) return null;
+  if (!token.value) return {};
   try {
-    return jwtDecode(token.value);
+    const decoded = jwtDecode(token.value);
+    // Ensure we always return an object with safe structure
+    if (!decoded || typeof decoded !== 'object') return {};
+    // Ensure claims is always an object, not null
+    if (decoded['https://hasura.io/jwt/claims']) {
+      if (typeof decoded['https://hasura.io/jwt/claims'] !== 'object' || decoded['https://hasura.io/jwt/claims'] === null) {
+        decoded['https://hasura.io/jwt/claims'] = {};
+      }
+    } else {
+      decoded['https://hasura.io/jwt/claims'] = {};
+    }
+    return decoded;
   } catch {
-    return null;
+    return {};
   }
 });
-const userName = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-name'] || 'User');
-const userEmail = computed(() => userInfo.value?.['https://hasura.io/jwt/claims']?.['x-hasura-user-email'] || '');
+const userName = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return 'User';
+  return claims['x-hasura-user-name'] || 'User';
+});
+const userEmail = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return '';
+  return claims['x-hasura-user-email'] || '';
+});
+const userId = computed(() => {
+  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
+  if (!claims || typeof claims !== 'object' || claims === null) return null;
+  const id = claims['x-hasura-user-id'];
+  return id ? parseInt(id) : null;
+});
+const isOwner = computed(() => {
+  if (!isAuthenticated.value || !userId.value || !recipe.value) return false;
+  return recipe.value.user_id === userId.value;
+});
 
 // GraphQL Query for Recipe
 const query = gql`
@@ -299,6 +402,7 @@ const query = gql`
       category {
         id
         name
+        image_url
       }
     }
   }
@@ -307,6 +411,61 @@ const query = gql`
 // Use useQuery (reactive, no await needed)
 const { result, loading: pending, error } = useQuery(query, { id: recipeId });
 const recipe = computed(() => result.value?.recipes_by_pk);
+
+// Fetch Recipe Images (REST API)
+const recipeImages = ref([]);
+const currentImageIndex = ref(0);
+
+const fetchRecipeImages = async () => {
+  try {
+    // Fetch images from recipe_images table
+    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/images`);
+    if (response.ok) {
+      const images = await response.json();
+      if (images && images.length > 0) {
+        recipeImages.value = images;
+        // Set current index to featured image if available
+        const featuredIndex = recipeImages.value.findIndex(img => img.is_featured);
+        if (featuredIndex >= 0) {
+          currentImageIndex.value = featuredIndex;
+        } else {
+          currentImageIndex.value = 0;
+        }
+      } else {
+        // No images in recipe_images table, use thumbnail as fallback
+        if (recipe.value?.thumbnail_url) {
+          recipeImages.value = [{ url: recipe.value.thumbnail_url, is_featured: true, id: 0, recipe_id: recipeId }];
+          currentImageIndex.value = 0;
+        }
+      }
+    } else {
+      // If endpoint fails, use thumbnail as fallback
+      if (recipe.value?.thumbnail_url) {
+        recipeImages.value = [{ url: recipe.value.thumbnail_url, is_featured: true, id: 0, recipe_id: recipeId }];
+        currentImageIndex.value = 0;
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching images:', err);
+    // Fallback to thumbnail
+    if (recipe.value?.thumbnail_url) {
+      recipeImages.value = [{ url: recipe.value.thumbnail_url, is_featured: true, id: 0, recipe_id: recipeId }];
+      currentImageIndex.value = 0;
+    }
+  }
+};
+
+const nextImage = () => {
+  if (currentImageIndex.value < recipeImages.value.length - 1) {
+    currentImageIndex.value++;
+  }
+};
+
+const previousImage = () => {
+  if (currentImageIndex.value > 0) {
+    currentImageIndex.value--;
+  }
+};
 
 // Fetch Ingredients (REST API)
 const ingredientsData = ref([]);
@@ -370,7 +529,7 @@ const hasPurchased = ref(false);
 // Toggle Like
 const toggleLike = async () => {
   if (!token.value) {
-    alert('Please login to like recipes');
+    router.push('/login');
     return;
   }
   actionLoading.value = true;
@@ -410,7 +569,7 @@ const toggleLike = async () => {
 // Toggle Bookmark
 const toggleBookmark = async () => {
   if (!token.value) {
-    alert('Please login to bookmark recipes');
+    router.push('/login');
     return;
   }
   actionLoading.value = true;
@@ -451,11 +610,21 @@ const ratingLoading = ref(false);
 const ratingSuccess = ref(false);
 
 const submitRating = async (rating) => {
-  if (!token.value) return;
+  if (!token.value) {
+    router.push('/login');
+    return;
+  }
+  
+  if (rating < 1 || rating > 5) {
+    alert('Rating must be between 1 and 5');
+    return;
+  }
+  
   ratingLoading.value = true;
   ratingSuccess.value = false;
   
   try {
+    console.log(`[RATING] Submitting rating ${rating} for recipe ${recipeId}`);
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}/rate`, {
       method: 'POST',
       headers: {
@@ -465,14 +634,24 @@ const submitRating = async (rating) => {
       body: JSON.stringify({ rating })
     });
     
+    console.log(`[RATING] Response status: ${response.status}`);
+    
     if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      console.log(`[RATING] Success:`, data);
       userRating.value = rating;
       ratingSuccess.value = true;
-      await fetchRating();
+      await fetchRating(); // Refresh average rating
       setTimeout(() => { ratingSuccess.value = false; }, 3000);
+      alert('Rating submitted successfully!');
+    } else {
+      const errorData = await response.json().catch(() => ({ error: 'Rating failed' }));
+      console.error('[RATING] Error response:', errorData);
+      alert(`Failed to submit rating: ${errorData.error || 'Please try again'}`);
     }
   } catch (err) {
-    console.error('Error submitting rating:', err);
+    console.error('[RATING] Exception:', err);
+    alert('Failed to submit rating. Please check if backend is running.');
   } finally {
     ratingLoading.value = false;
   }
@@ -484,7 +663,7 @@ const commentLoading = ref(false);
 
 const submitComment = async () => {
   if (!token.value) {
-    alert('Please login to comment');
+    router.push('/login');
     return;
   }
   if (!newComment.value.trim()) {
@@ -527,7 +706,11 @@ const submitComment = async () => {
 // Buy Recipe
 const buying = ref(false);
 const handleBuyRecipe = async () => {
-  if (!token.value || !recipe.value) return;
+  if (!token.value) {
+    router.push('/login');
+    return;
+  }
+  if (!recipe.value) return;
   buying.value = true;
   
   try {
@@ -539,9 +722,9 @@ const handleBuyRecipe = async () => {
       },
       body: JSON.stringify({
         amount: recipe.value.price.toString(),
-        email: userEmail.value || 'user@example.com',
-        first_name: userName.value?.split(' ')[0] || 'User',
-        last_name: userName.value?.split(' ').slice(1).join(' ') || 'Name',
+        email: userEmail.value || 'testuser@gmail.com',
+        first_name: userName.value?.split(' ')[0] || 'Test',
+        last_name: userName.value?.split(' ').slice(1).join(' ') || 'User',
         recipe_id: recipeId
       })
     });
@@ -549,9 +732,14 @@ const handleBuyRecipe = async () => {
     if (response.ok) {
       const data = await response.json();
       window.location.href = data.checkout_url;
+    } else {
+      const errorData = await response.json().catch(() => ({ error: 'Payment initialization failed' }));
+      alert(`Payment Error: ${errorData.error || 'Failed to initialize payment. Please try again.'}`);
+      console.error('Payment initialization error:', errorData);
     }
   } catch (err) {
     console.error('Error initializing payment:', err);
+    alert('Failed to initialize payment. Please check your connection and try again.');
   } finally {
     buying.value = false;
   }
@@ -630,8 +818,11 @@ const checkUserInteractions = async () => {
 
 // Watch for recipe changes and check interactions
 watch(() => recipe.value, async (newRecipe) => {
-  if (newRecipe && token.value) {
-    await checkUserInteractions();
+  if (newRecipe) {
+    await fetchRecipeImages();
+    if (token.value) {
+      await checkUserInteractions();
+    }
   }
 }, { immediate: true });
 

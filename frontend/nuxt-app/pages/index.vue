@@ -1,6 +1,6 @@
 <template>
   <div 
-    @click="navigateToLogin" 
+    @click="navigateToHome" 
     class="relative min-h-screen w-full overflow-hidden cursor-pointer group"
   >
     <!-- Background Image with Overlay -->
@@ -45,8 +45,8 @@
 <script setup>
 const router = useRouter();
 
-const navigateToLogin = () => {
-  router.push('/login');
+const navigateToHome = () => {
+  router.push('/home');
 };
 
 // Define layout as 'none' or 'blank' if you don't want the navbar on this splash screen

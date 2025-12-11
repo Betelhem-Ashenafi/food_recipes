@@ -5,9 +5,10 @@
       <img 
         src="https://images.unsplash.com/photo-1544025162-d76694265947?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food Spread" 
-        class="w-full h-full object-cover brightness-95"
+        class="w-full h-full object-cover brightness-75"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/20 via-black/5 to-black/30"></div>
+      <div class="absolute inset-0 bg-black/10"></div>
     </div>
 
     <!-- Content Container -->
@@ -62,20 +63,52 @@
               :key="category.id"
               @click="selectedCategory = selectedCategory === category.id ? null : category.id"
               :class="[
-                'group relative overflow-hidden rounded-xl p-6 backdrop-blur-lg border transition-all duration-300 transform hover:scale-105',
+                'group relative overflow-hidden rounded-xl border transition-all duration-300 transform hover:scale-105 hover:shadow-2xl',
                 selectedCategory === category.id
-                  ? 'bg-emerald-500/30 border-emerald-400/50 shadow-lg shadow-emerald-500/20'
-                  : 'bg-white/10 border-white/20 hover:bg-white/15 hover:border-white/30'
+                  ? 'ring-2 ring-emerald-400 shadow-lg shadow-emerald-500/50'
+                  : 'hover:shadow-xl'
               ]"
             >
-              <div class="text-center">
-                <div class="text-4xl mb-2">{{ getCategoryEmoji(category.name) }}</div>
-                <p class="text-white font-semibold text-sm mt-2">{{ category.name }}</p>
-              </div>
-              <div v-if="selectedCategory === category.id" class="absolute top-2 right-2">
-                <svg class="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
+              <!-- Category Image Background -->
+              <div class="relative h-32 md:h-40 overflow-hidden">
+                <img 
+                  v-if="category.image_url"
+                  :src="category.image_url" 
+                  :alt="category.name"
+                  class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  @error="handleImageError"
+                />
+                <!-- Fallback gradient if no image -->
+                <div 
+                  v-else
+                  class="w-full h-full bg-gradient-to-br from-emerald-500/30 via-teal-500/30 to-blue-500/30"
+                >
+                  <div class="flex items-center justify-center h-full text-5xl">
+                    {{ getCategoryEmoji(category.name) }}
+                  </div>
+                </div>
+                
+                <!-- Overlay gradient for better text readability -->
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+                
+                <!-- Category Name -->
+                <div class="absolute bottom-0 left-0 right-0 p-3 text-center">
+                  <p class="text-white font-bold text-sm md:text-base drop-shadow-lg">
+                    {{ category.name }}
+                  </p>
+                </div>
+                
+                <!-- Selected Checkmark -->
+                <div v-if="selectedCategory === category.id" class="absolute top-2 right-2">
+                  <div class="bg-emerald-500 rounded-full p-1.5 shadow-lg">
+                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <!-- Hover effect overlay -->
+                <div class="absolute inset-0 bg-emerald-500/0 group-hover:bg-emerald-500/10 transition-colors duration-300"></div>
               </div>
             </button>
           </div>
@@ -301,6 +334,12 @@ const recipesQuery = gql`
         id
         name
       }
+      recipe_ingredients {
+        id
+        name
+        quantity
+        unit
+      }
     }
   }
 `;
@@ -340,7 +379,7 @@ const featuredCount = 6;
 const showFeatured = ref(true);
 const showTrending = ref(true);
 
-// Get Category Emoji
+// Get Category Emoji (fallback when image is not available)
 const getCategoryEmoji = (name) => {
   const emojiMap = {
     'Italian': '🍝',
@@ -360,6 +399,12 @@ const getCategoryEmoji = (name) => {
     'Beverage': '🥤',
   };
   return emojiMap[name] || '🍳';
+};
+
+// Handle image loading errors
+const handleImageError = (event) => {
+  // Hide the broken image and show fallback
+  event.target.style.display = 'none';
 };
 
 // Format Date
@@ -406,13 +451,20 @@ const filteredRecipes = computed(() => {
     );
   }
 
-  // Filter by ingredient (search in title/description)
+  // Filter by ingredient (search in recipe_ingredients table)
   if (ingredientFilter.value) {
     const ingredient = ingredientFilter.value.toLowerCase();
-    filtered = filtered.filter(recipe => 
-      recipe.title.toLowerCase().includes(ingredient) ||
-      recipe.description?.toLowerCase().includes(ingredient)
-    );
+    filtered = filtered.filter(recipe => {
+      // Check if any ingredient name matches
+      if (recipe.recipe_ingredients && recipe.recipe_ingredients.length > 0) {
+        return recipe.recipe_ingredients.some(ing => 
+          ing.name?.toLowerCase().includes(ingredient)
+        );
+      }
+      // Fallback: search in title/description if no ingredients loaded
+      return recipe.title.toLowerCase().includes(ingredient) ||
+             recipe.description?.toLowerCase().includes(ingredient);
+    });
   }
 
   // Filter by creator

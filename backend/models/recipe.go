@@ -56,4 +56,5 @@ type CreateRecipeRequest struct {
 	ThumbnailURL    string             `json:"thumbnail_url"`
 	Ingredients     []RecipeIngredient `json:"ingredients"`
 	Steps           []RecipeStep       `json:"steps"`
+	Images          []string           `json:"images"` // Array of image URLs
 }

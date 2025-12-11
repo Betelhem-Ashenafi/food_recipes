@@ -48,6 +48,34 @@ func main() {
 	// Serve static files from uploads directory
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
+	// Register user profile routes - MUST be before /recipes/ to avoid conflicts
+	http.HandleFunc("/users/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Users route hit: %s %s", r.Method, r.URL.Path)
+		// Extract subpath after /users/
+		path := strings.TrimPrefix(r.URL.Path, "/users/")
+		pathParts := strings.Split(path, "/")
+		log.Printf("Path parts after /users/: %v", pathParts)
+
+		// pathParts should be: ["{id}", "bookmarks"] or ["{id}", "purchases"]
+		if len(pathParts) >= 2 {
+			// Check if it's bookmarks: /users/{id}/bookmarks
+			if pathParts[1] == "bookmarks" && r.Method == http.MethodGet {
+				log.Printf("Calling GetUserBookmarksHandler for user %s", pathParts[0])
+				handlers.AuthMiddleware(handlers.GetUserBookmarksHandler)(w, r)
+				return
+			}
+
+			// Check if it's purchases: /users/{id}/purchases
+			if pathParts[1] == "purchases" && r.Method == http.MethodGet {
+				log.Printf("Calling GetUserPurchasesHandler for user %s", pathParts[0])
+				handlers.AuthMiddleware(handlers.GetUserPurchasesHandler)(w, r)
+				return
+			}
+		}
+		log.Printf("No matching route for /users/ - returning 404")
+		http.Error(w, "Not found", http.StatusNotFound)
+	})
+
 	// Register recipe routes (Protected)
 	http.HandleFunc("/recipes", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -141,11 +169,14 @@ func main() {
 				}
 			}
 
-			// Check for image upload/feature endpoints
-			// Check if it's an image upload request: /recipes/{id}/images
-			if len(subPath) >= len("/images") && subPath[len(subPath)-len("/images"):] == "/images" {
-				switch r.Method {
-				case http.MethodPost:
+			// Check for image endpoints: /recipes/{id}/images
+			if strings.HasSuffix(subPath, "/images") {
+				if r.Method == http.MethodGet {
+					// GET /recipes/{id}/images - Public endpoint to fetch all images
+					handlers.GetRecipeImagesHandler(w, r)
+					return
+				} else if r.Method == http.MethodPost {
+					// POST /recipes/{id}/images - Upload images (requires auth)
 					handlers.AuthMiddleware(handlers.UploadRecipeImagesHandler)(w, r)
 					return
 				}
@@ -162,6 +193,9 @@ func main() {
 		}
 
 		switch r.Method {
+		case http.MethodGet:
+			// GET /recipes/{id} - Get single recipe (public)
+			handlers.GetRecipeByIDHandler(w, r)
 		case http.MethodPut:
 			handlers.AuthMiddleware(handlers.EditRecipeHandler)(w, r)
 		case http.MethodDelete:

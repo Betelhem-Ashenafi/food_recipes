@@ -111,5 +111,42 @@ try {
     }
 }
 
+# Relationship: recipes -> recipe_ingredients (one-to-many)
+$recipesToIngredients = @{
+    type = "pg_create_array_relationship"
+    args = @{
+        source = "default"
+        table = @{
+            schema = "public"
+            name = "recipes"
+        }
+        name = "recipe_ingredients"
+        using = @{
+            foreign_key_constraint_on = @{
+                table = @{
+                    schema = "public"
+                    name = "recipe_ingredients"
+                }
+                column = "recipe_id"
+            }
+        }
+    }
+} | ConvertTo-Json -Depth 10
+
+Write-Host "Creating recipes -> recipe_ingredients relationship..." -NoNewline
+try {
+    $response = Invoke-RestMethod -Uri "http://localhost:8080/v1/metadata" -Method Post -Headers $headers -Body $recipesToIngredients
+    Write-Host " Success." -ForegroundColor Green
+} catch {
+    $stream = $_.Exception.Response.GetResponseStream()
+    $reader = [System.IO.StreamReader]::new($stream)
+    $errBody = $reader.ReadToEnd()
+    if ($errBody -match "already exists") {
+        Write-Host " Already exists." -ForegroundColor Yellow
+    } else {
+        Write-Host " Failed." -ForegroundColor Red
+    }
+}
+
 Write-Host "`nRelationships configuration complete!" -ForegroundColor Cyan
 

@@ -5,9 +5,9 @@
       <img 
         src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Food" 
-        class="w-full h-full object-cover"
+        class="w-full h-full object-cover brightness-60"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/85 via-black/80 to-black/90"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Loading State -->
@@ -22,7 +22,7 @@
     <div v-else-if="error" class="relative z-10 max-w-2xl mx-auto px-4 py-20">
       <div class="bg-red-500/20 border border-red-500/50 text-red-200 px-6 py-4 rounded-lg">
         <strong class="font-bold">Error!</strong>
-        <span class="block sm:inline"> {{ error.message }}</span>
+        <span class="block sm:inline"> {{ error?.message || error?.toString() || 'Failed to load recipe' }}</span>
       </div>
     </div>
 
@@ -203,8 +203,8 @@
         </div>
       </div>
 
-      <!-- Ingredients -->
-      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <!-- Ingredients - Only show if free, purchased, or owner -->
+      <div v-if="recipe.price === 0 || hasPurchased || isOwner" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-3xl font-bold text-white mb-6 flex items-center">
           <span class="text-emerald-400 mr-2">🥕</span> Ingredients
         </h2>
@@ -222,8 +222,28 @@
         <p v-else class="text-gray-400">No ingredients listed</p>
       </div>
 
-      <!-- Steps -->
-      <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <!-- Payment Required Message for Ingredients -->
+      <div v-else class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+        <div class="text-center py-8">
+          <div class="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h3 class="text-2xl font-bold text-white mb-2">Ingredients Locked</h3>
+          <p class="text-gray-300 mb-6">Purchase this recipe to view the full ingredients list and preparation steps.</p>
+          <button
+            @click="handleBuyRecipe"
+            :disabled="buying"
+            class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all font-bold shadow-lg disabled:opacity-50"
+          >
+            {{ buying ? 'Processing...' : `Buy Recipe for ${recipe.price} Credits` }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Steps - Only show if free, purchased, or owner -->
+      <div v-if="recipe.price === 0 || hasPurchased || isOwner" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-3xl font-bold text-white mb-6 flex items-center">
           <span class="text-emerald-400 mr-2">📋</span> Preparation Steps
         </h2>
@@ -338,6 +358,8 @@ import { jwtDecode } from 'jwt-decode';
 const route = useRoute();
 const router = useRouter();
 const recipeId = parseInt(route.params.id);
+// Check if coming from payment success page
+const fromPayment = computed(() => route.query.fromPayment === 'true' || route.query.payment === 'success');
 const token = useCookie('auth_token');
 const isAuthenticated = computed(() => !!token.value);
 
@@ -379,10 +401,13 @@ const userId = computed(() => {
 });
 const isOwner = computed(() => {
   if (!isAuthenticated.value || !userId.value || !recipe.value) return false;
-  return recipe.value.user_id === userId.value;
+  // Ensure both are numbers for comparison
+  const recipeUserId = typeof recipe.value.user_id === 'string' ? parseInt(recipe.value.user_id) : recipe.value.user_id;
+  const currentUserId = typeof userId.value === 'string' ? parseInt(userId.value) : userId.value;
+  return recipeUserId === currentUserId;
 });
 
-// GraphQL Query for Recipe
+// GraphQL Query for Recipe (using Vue Apollo with Hasura)
 const query = gql`
   query GetRecipe($id: Int!) {
     recipes_by_pk(id: $id) {
@@ -408,9 +433,24 @@ const query = gql`
   }
 `;
 
-// Use useQuery (reactive, no await needed)
-const { result, loading: pending, error } = useQuery(query, { id: recipeId });
-const recipe = computed(() => result.value?.recipes_by_pk);
+// Use useQuery with proper error handling
+// Skip query if recipeId is invalid
+const { result, loading: pending, error } = useQuery(
+  query, 
+  () => ({ id: recipeId }),
+  { 
+    skip: () => !recipeId || recipeId === 0,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    returnPartialData: true
+  }
+);
+
+const recipe = computed(() => {
+  if (!result.value || typeof result.value !== 'object') return null;
+  if (!result.value.recipes_by_pk) return null;
+  return result.value.recipes_by_pk;
+});
 
 // Fetch Recipe Images (REST API)
 const recipeImages = ref([]);
@@ -731,6 +771,10 @@ const handleBuyRecipe = async () => {
     
     if (response.ok) {
       const data = await response.json();
+      // Store recipe ID in sessionStorage as backup for payment success page
+      if (process.client) {
+        sessionStorage.setItem('pending_payment_recipe_id', recipeId.toString());
+      }
       window.location.href = data.checkout_url;
     } else {
       const errorData = await response.json().catch(() => ({ error: 'Payment initialization failed' }));
@@ -780,60 +824,215 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
-// Check if user liked/bookmarked this recipe
+// Check if user liked/bookmarked/purchased this recipe
 const checkUserInteractions = async () => {
-  if (!token.value || !recipe.value) return;
+  if (!token.value || !recipe.value) {
+    console.log('Skipping interaction check - no token or recipe');
+    return;
+  }
   
   try {
     // Check like
-    const likeCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/like/check`, {
-      headers: { 'Authorization': `Bearer ${token.value}` }
-    });
-    if (likeCheck.ok) {
-      const likeData = await likeCheck.json();
-      isLiked.value = likeData.liked || false;
+    try {
+      const likeCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/like/check`, {
+        headers: { 'Authorization': `Bearer ${token.value}` }
+      });
+      if (likeCheck.ok) {
+        const likeData = await likeCheck.json();
+        isLiked.value = likeData.liked || false;
+      }
+    } catch (err) {
+      console.warn('Error checking like:', err);
     }
     
     // Check bookmark
-    const bookmarkCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/bookmark/check`, {
-      headers: { 'Authorization': `Bearer ${token.value}` }
-    });
-    if (bookmarkCheck.ok) {
-      const bookmarkData = await bookmarkCheck.json();
-      isBookmarked.value = bookmarkData.bookmarked || false;
+    try {
+      const bookmarkCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/bookmark/check`, {
+        headers: { 'Authorization': `Bearer ${token.value}` }
+      });
+      if (bookmarkCheck.ok) {
+        const bookmarkData = await bookmarkCheck.json();
+        isBookmarked.value = bookmarkData.bookmarked || false;
+      }
+    } catch (err) {
+      console.warn('Error checking bookmark:', err);
     }
     
-    // Check purchase
-    const purchaseCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/purchase/check`, {
-      headers: { 'Authorization': `Bearer ${token.value}` }
-    });
-    if (purchaseCheck.ok) {
-      const purchaseData = await purchaseCheck.json();
-      hasPurchased.value = purchaseData.purchased || false;
+    // Check purchase - CRITICAL for paid recipes
+    try {
+      const purchaseCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/purchase/check`, {
+        headers: { 'Authorization': `Bearer ${token.value}` }
+      });
+      
+      if (purchaseCheck.ok) {
+        const purchaseData = await purchaseCheck.json();
+        const wasPurchased = hasPurchased.value;
+        hasPurchased.value = purchaseData.purchased || false;
+        
+        console.log('🔍 Purchase check result:', {
+          purchased: hasPurchased.value,
+          wasPurchased: wasPurchased,
+          recipeId: recipeId,
+          price: recipe.value.price,
+          isOwner: isOwner.value
+        });
+        
+        // If purchase status changed to true, trigger content load
+        if (hasPurchased.value && !wasPurchased) {
+          console.log('✅ Purchase status changed to TRUE - will load content');
+          // Trigger content load
+          await loadContentIfAllowed();
+        }
+      } else {
+        console.warn('⚠️ Purchase check failed:', purchaseCheck.status, purchaseCheck.statusText);
+        const errorText = await purchaseCheck.text().catch(() => 'Unknown error');
+        console.warn('Error details:', errorText);
+      }
+    } catch (err) {
+      console.error('❌ Error checking purchase:', err);
     }
   } catch (err) {
     console.error('Error checking interactions:', err);
   }
 };
 
+// Load content if user has access (free, purchased, or owner)
+const loadContentIfAllowed = async () => {
+  if (!recipe.value) {
+    console.log('Cannot load content - no recipe');
+    return;
+  }
+  
+  const canViewContent = recipe.value.price === 0 || hasPurchased.value || isOwner.value;
+  
+  console.log('📋 Checking content access:', {
+    price: recipe.value.price,
+    hasPurchased: hasPurchased.value,
+    isOwner: isOwner.value,
+    userId: userId.value,
+    recipeUserId: recipe.value.user_id,
+    canViewContent: canViewContent
+  });
+  
+  if (canViewContent) {
+    console.log('✅ User has access - loading ingredients and steps...');
+    try {
+      await Promise.all([
+        fetchIngredients(),
+        fetchSteps()
+      ]);
+      console.log('✅ Content loaded successfully');
+    } catch (err) {
+      console.error('❌ Error loading content:', err);
+    }
+  } else {
+    console.log('❌ User does not have access to content');
+  }
+};
+
 // Watch for recipe changes and check interactions
 watch(() => recipe.value, async (newRecipe) => {
   if (newRecipe) {
+    console.log('📝 Recipe loaded:', newRecipe.title);
     await fetchRecipeImages();
+    
+    // Check user interactions first (including purchase status)
     if (token.value) {
       await checkUserInteractions();
     }
+    
+    // Load content after checking interactions
+    await loadContentIfAllowed();
+    
+    // Also check after a short delay to catch reactive updates
+    setTimeout(() => {
+      loadContentIfAllowed();
+    }, 500);
   }
-}, { immediate: true });
+}, { immediate: false });
+
+// Watch for purchase status changes - CRITICAL for showing content after payment
+watch(() => hasPurchased.value, async (purchased, oldValue) => {
+  console.log('💰 Purchase status changed:', { 
+    purchased, 
+    oldValue, 
+    recipeId: recipeId,
+    recipePrice: recipe.value?.price 
+  });
+  
+  if (purchased && recipe.value) {
+    // User just purchased, load content immediately
+    console.log('✅ Purchase confirmed! Loading full recipe content...');
+    await loadContentIfAllowed();
+  }
+}, { immediate: false });
+
+// Watch for owner status changes
+watch(() => isOwner.value, async (owner) => {
+  console.log('👤 Owner status changed:', { owner, recipeId: recipeId });
+  
+  if (owner && recipe.value) {
+    // Owner always has access, load content
+    console.log('✅ User is owner - loading content...');
+    await loadContentIfAllowed();
+  }
+});
 
 // Load data on mount
 onMounted(async () => {
-  await fetchIngredients();
-  await fetchSteps();
-  await fetchComments();
-  await fetchRating();
-  if (token.value && recipe.value) {
-    await checkUserInteractions();
+  console.log('🚀 Component mounted, recipe:', recipe.value?.title || 'not loaded yet');
+  
+  // Wait for recipe to load from Apollo query
+  if (recipe.value) {
+    // If coming from payment, check purchase status with retries
+    if (fromPayment.value && token.value) {
+      console.log('💳 Coming from payment page - checking purchase status with retries...');
+      
+      // Check purchase status multiple times with delays to ensure backend has processed
+      const checkPurchaseWithRetry = async (attempt = 1, maxAttempts = 5) => {
+        console.log(`🔄 Purchase check attempt ${attempt}/${maxAttempts}...`);
+        await checkUserInteractions();
+        
+        // If still not purchased and we have more attempts, retry
+        if (!hasPurchased.value && attempt < maxAttempts) {
+          const delay = attempt * 1000; // Increasing delay: 1s, 2s, 3s, 4s
+          console.log(`⏳ Retrying purchase check in ${delay}ms...`);
+          setTimeout(() => checkPurchaseWithRetry(attempt + 1, maxAttempts), delay);
+        } else if (hasPurchased.value) {
+          console.log('✅ Purchase confirmed after payment!');
+        } else {
+          console.warn('⚠️ Purchase not confirmed after all retries');
+        }
+      };
+      
+      // Start checking immediately
+      await checkPurchaseWithRetry();
+    } else if (token.value) {
+      // Normal flow - check all interactions
+      console.log('🔍 Checking user interactions...');
+      await checkUserInteractions();
+    }
+    
+    // Load content based on access
+    await loadContentIfAllowed();
+    
+    // Also check after delays to catch reactive updates
+    setTimeout(() => loadContentIfAllowed(), 500);
+    setTimeout(() => loadContentIfAllowed(), 1500);
+    
+    // If coming from payment, check again after longer delay
+    if (fromPayment.value) {
+      setTimeout(() => {
+        console.log('💳 Final purchase check after payment...');
+        checkUserInteractions().then(() => loadContentIfAllowed());
+      }, 3000);
+    }
+    
+    // Comments and ratings are always visible
+    await fetchComments();
+    await fetchRating();
+  } else {
+    console.log('⏳ Waiting for recipe to load...');
   }
 });
 </script>

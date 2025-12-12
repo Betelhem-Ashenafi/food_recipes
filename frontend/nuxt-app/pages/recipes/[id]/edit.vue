@@ -5,9 +5,10 @@
       <img 
         src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Kitchen" 
-        class="w-full h-full object-cover brightness-95"
+        class="w-full h-full object-cover brightness-60"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <!-- Enhanced dark overlay for optimal text readability -->
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Loading State -->
@@ -30,30 +31,25 @@
     <!-- Content -->
     <div v-else-if="recipe" class="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-16">
       <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl shadow-2xl p-8">
-        <h1 class="text-3xl font-bold text-white mb-6">Edit Recipe: {{ recipe.title || 'Loading...' }}</h1>
-        
-        <!-- Debug Info (remove this after testing) -->
-        <div v-if="recipe" class="mb-4 p-4 bg-black/20 rounded-lg text-xs text-gray-300">
-          <p>Recipe ID: {{ recipeId }}</p>
-          <p>Title: {{ formTitle || '(empty)' }}</p>
-          <p>Category ID: {{ formCategoryId }}</p>
-          <p>Has Recipe: {{ !!recipe }}</p>
-        </div>
+        <h1 class="text-3xl font-bold text-white mb-6 flex items-center">
+          <span class="text-emerald-400 mr-2">✏️</span>
+          Edit Recipe: {{ recipe.title || 'Loading...' }}
+        </h1>
         
         <form @submit.prevent="handleFormSubmit">
           <!-- Basic Information -->
           <div class="mb-8">
-            <h2 class="text-2xl font-bold text-white mb-6">Basic Information</h2>
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
+              <span class="text-emerald-400 mr-2">📝</span> Basic Information
+            </h2>
             
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-300 mb-2">Recipe Title</label>
               <input 
-                :value="formTitle"
-                @input="(e) => { formTitle.value = e.target.value; }"
+                v-model="formTitle"
                 type="text" 
                 required
                 minlength="3"
-                key="title-input"
                 class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 placeholder="Recipe title"
               />
@@ -63,12 +59,10 @@
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-300 mb-2">Description</label>
               <textarea 
-                :value="formDescription"
-                @input="(e) => { formDescription.value = e.target.value; }"
+                v-model="formDescription"
                 rows="4"
                 required
                 minlength="10"
-                key="description-input"
                 class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 placeholder="Recipe description"
               ></textarea>
@@ -119,7 +113,7 @@
                       </div>
                       
                       <!-- Selected Checkmark -->
-                      <div v-if="formCategoryId === cat.id" class="absolute top-1 right-1">
+                      <div v-if="formCategoryId.value === cat.id" class="absolute top-1 right-1">
                         <div class="bg-emerald-500 rounded-full p-1 shadow-lg">
                           <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -136,12 +130,10 @@
               <div>
                 <label class="block text-sm font-medium text-gray-300 mb-2">Preparation Time (minutes)</label>
                 <input 
-                  :value="formPreparationTime"
-                  @input="(e) => { formPreparationTime.value = parseInt(e.target.value) || 0; }"
+                  v-model.number="formPreparationTime"
                   type="number"
                   required
                   min="1"
-                  key="prep-time-input"
                   class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   placeholder="e.g., 45"
                 />
@@ -152,12 +144,10 @@
             <div class="mt-6">
               <label class="block text-sm font-medium text-gray-300 mb-2">Price (0 for free)</label>
               <input 
-                :value="formPrice"
-                @input="(e) => { formPrice.value = parseFloat(e.target.value) || 0; }"
+                v-model.number="formPrice"
                 type="number"
                 step="0.01"
                 min="0"
-                key="price-input"
                 class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 placeholder="0.00"
               />
@@ -167,7 +157,9 @@
 
           <!-- Multiple Images with Featured Selection -->
           <div class="mb-8">
-            <h2 class="text-2xl font-bold text-white mb-6">Recipe Images</h2>
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
+              <span class="text-emerald-400 mr-2">📸</span> Recipe Images
+            </h2>
             <p class="text-gray-300 text-sm mb-4">Upload multiple images and select one as featured (thumbnail)</p>
             
             <!-- Image Upload Area -->
@@ -235,7 +227,9 @@
 
           <!-- Ingredients -->
           <div class="mb-8">
-            <h2 class="text-2xl font-bold text-white mb-6">Ingredients</h2>
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
+              <span class="text-emerald-400 mr-2">🥕</span> Ingredients
+            </h2>
             <div v-for="(ing, index) in ingredients" :key="index" class="mb-4 flex gap-3">
               <input v-model="ing.name" placeholder="Name" class="flex-1 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
               <input v-model="ing.quantity" placeholder="Qty" class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
@@ -247,7 +241,9 @@
 
           <!-- Steps -->
           <div class="mb-8">
-            <h2 class="text-2xl font-bold text-white mb-6">Steps</h2>
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
+              <span class="text-emerald-400 mr-2">📋</span> Preparation Steps
+            </h2>
             <div v-for="(step, index) in steps" :key="index" class="mb-4">
               <textarea v-model="step.instruction" rows="3" placeholder="Step instruction" class="w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white"></textarea>
               <button type="button" @click="removeStep(index)" class="mt-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg">Remove</button>
@@ -554,6 +550,7 @@ const handleUpdateRecipe = async (values) => {
   const validIngredients = ingredients.value.filter(ing => ing.name && ing.name.trim() !== '');
   if (validIngredients.length === 0) {
     updateError.value = 'Please add at least one ingredient';
+    isSubmitting.value = false;
     return;
   }
 
@@ -561,6 +558,7 @@ const handleUpdateRecipe = async (values) => {
   const validSteps = steps.value.filter(step => step.instruction && step.instruction.trim() !== '');
   if (validSteps.length === 0) {
     updateError.value = 'Please add at least one preparation step';
+    isSubmitting.value = false;
     return;
   }
 
@@ -571,6 +569,7 @@ const handleUpdateRecipe = async (values) => {
       uploadedImages.value = [{ url: recipe.value.thumbnail_url, isFeatured: true }];
     } else {
       updateError.value = 'Please upload at least one image';
+      isSubmitting.value = false;
       return;
     }
   }
@@ -611,7 +610,10 @@ const handleUpdateRecipe = async (values) => {
   console.log('[EDIT] Formatted recipe data to send:', recipeData);
 
   try {
-    console.log('[EDIT] Updating recipe:', recipeId, recipeData);
+    console.log('[EDIT] Updating recipe:', recipeId);
+    console.log('[EDIT] Recipe data being sent:', JSON.stringify(recipeData, null, 2));
+    console.log('[EDIT] Data summary - Title:', recipeData.title, 'Category:', recipeData.category_id, 'Ingredients:', recipeData.ingredients.length, 'Steps:', recipeData.steps.length, 'Images:', recipeData.images.length);
+    
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
       method: 'PUT',
       headers: {
@@ -620,33 +622,51 @@ const handleUpdateRecipe = async (values) => {
       },
       body: JSON.stringify(recipeData)
     });
+    
+    console.log('[EDIT] Response status:', response.status, response.statusText);
 
+    // Read response body once (can only be read once)
+    const responseText = await response.text();
+    
     if (!response.ok) {
-      let errorData = '';
+      let errorMessage = 'Failed to update recipe';
       try {
-        errorData = await response.text();
-        const errorJson = JSON.parse(errorData);
-        throw new Error(errorJson.error || errorData || 'Failed to update recipe');
+        const errorJson = JSON.parse(responseText);
+        errorMessage = errorJson.error || errorJson.message || responseText || errorMessage;
       } catch (parseError) {
-        throw new Error(errorData || 'Failed to update recipe');
+        // If not JSON, use the text as error message
+        errorMessage = responseText || errorMessage;
       }
+      throw new Error(errorMessage);
     }
 
-    // Try to parse response as JSON, but handle empty responses
+    // Parse successful response
     let data = null;
-    const responseText = await response.text();
     if (responseText) {
       try {
         data = JSON.parse(responseText);
+        console.log('[EDIT] Recipe updated successfully:', data);
       } catch (e) {
-        // Response is not JSON, that's okay
+        // Response is not JSON, that's okay - assume success
         console.log('[EDIT] Response is not JSON, assuming success');
+        data = { message: 'Recipe updated successfully' };
       }
+    } else {
+      data = { message: 'Recipe updated successfully' };
     }
     
-    console.log('[EDIT] Recipe updated successfully:', data || 'No response data');
-    alert('Recipe updated successfully!');
-    router.push(`/recipes/${recipeId}`);
+    // Show success notification
+    const successMessage = data?.message || 'Recipe updated successfully!';
+    
+    // Use a more elegant notification instead of alert
+    if (typeof window !== 'undefined' && window.showNotification) {
+      window.showNotification(successMessage, 'success');
+    } else {
+      alert(successMessage);
+    }
+    
+    // Redirect to recipe detail page
+    await router.push(`/recipes/${recipeId}`);
   } catch (err) {
     updateError.value = err.message || 'An error occurred while updating the recipe';
     console.error('[EDIT] Exception:', err);

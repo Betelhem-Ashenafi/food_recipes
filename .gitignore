@@ -24,14 +24,8 @@ Thumbs.db
 backend/backend
 backend/backend_app
 
-# Uploads
-# Allow image files in uploads, but keep .gitkeep
+# Uploads - exclude all uploaded files (user-generated content)
 backend/uploads/*
-!backend/uploads/*.jpg
-!backend/uploads/*.jpeg
-!backend/uploads/*.png
-!backend/uploads/*.gif
-!backend/uploads/*.webp
 !backend/uploads/.gitkeep
 
 # Node

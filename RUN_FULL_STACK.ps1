@@ -53,10 +53,11 @@ Write-Host "  ⚙️  Hasura Console - http://localhost:8080 (secret: myhasurase
 
 Write-Host "`nPress Ctrl+C to stop this script (services will continue running in background)" -ForegroundColor Yellow
 Write-Host "`nTo stop all services:" -ForegroundColor Yellow
-Write-Host "  cd docker && docker-compose down" -ForegroundColor Gray
+Write-Host "  cd docker; docker-compose down" -ForegroundColor Gray
 
 # Keep script running
 Read-Host "`nPress Enter to exit"
+
 
 
 

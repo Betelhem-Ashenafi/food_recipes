@@ -24,8 +24,13 @@ Thumbs.db
 backend/backend
 backend/backend_app
 
-# Uploads - exclude all uploaded files (user-generated content)
+# Uploads - allow image files to be tracked
 backend/uploads/*
+!backend/uploads/*.jpg
+!backend/uploads/*.jpeg
+!backend/uploads/*.png
+!backend/uploads/*.gif
+!backend/uploads/*.webp
 !backend/uploads/.gitkeep
 
 # Node

@@ -36,8 +36,9 @@
             
             <!-- Title -->
             <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Recipe Title</label>
+              <label for="create-recipe-title" class="block text-sm font-medium text-gray-300 mb-2">Recipe Title</label>
               <Field 
+                id="create-recipe-title"
                 name="title" 
                 type="text" 
                 class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
@@ -49,8 +50,9 @@
 
             <!-- Description -->
             <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Description</label>
+              <label for="create-recipe-description" class="block text-sm font-medium text-gray-300 mb-2">Description</label>
               <Field 
+                id="create-recipe-description"
                 name="description" 
                 as="textarea"
                 rows="4"
@@ -129,8 +131,9 @@
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Preparation Time (minutes)</label>
+                <label for="create-recipe-preparation-time" class="block text-sm font-medium text-gray-300 mb-2">Preparation Time (minutes)</label>
                 <Field 
+                  id="create-recipe-preparation-time"
                   name="preparation_time" 
                   type="number"
                   class="block w-full px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
@@ -143,8 +146,9 @@
 
             <!-- Price -->
             <div class="mt-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Price (0 for free)</label>
+              <label for="create-recipe-price" class="block text-sm font-medium text-gray-300 mb-2">Price (0 for free)</label>
               <Field 
+                id="create-recipe-price"
                 name="price" 
                 type="number"
                 step="0.01"

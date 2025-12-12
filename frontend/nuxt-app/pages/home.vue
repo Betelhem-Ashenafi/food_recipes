@@ -35,9 +35,11 @@
               </svg>
             </div>
             <input
+              ref="topSearchInput"
               v-model="searchQuery"
               type="text"
               placeholder="Search recipes by title..."
+              @keyup.enter="scrollToResults"
               class="block w-full pl-12 pr-4 py-4 border border-white/20 rounded-xl bg-white/10 backdrop-blur-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all text-lg"
             />
           </div>
@@ -114,7 +116,7 @@
         </div>
 
         <!-- Filters Section -->
-        <div class="max-w-4xl mx-auto mb-12">
+        <div ref="filtersSection" class="max-w-4xl mx-auto mb-12">
           <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-6">
             <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
               <!-- Preparation Time Filter -->
@@ -167,8 +169,17 @@
                 </select>
               </div>
 
-              <!-- Clear Filters -->
-              <div class="flex items-end">
+              <!-- Search and Clear Filters Buttons -->
+              <div class="flex flex-col gap-2">
+                <button
+                  @click="scrollToFilters"
+                  class="w-full px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 font-medium flex items-center justify-center gap-2"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  Search
+                </button>
                 <button
                   @click="clearFilters"
                   class="w-full px-4 py-2 border border-white/30 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors font-medium"
@@ -182,7 +193,7 @@
       </div>
 
       <!-- Recipes Section -->
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+      <div ref="recipesSection" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         <div class="text-center mb-8">
           <h2 class="text-3xl font-bold text-white mb-2">
             {{ showingAll ? 'All Recipes' : 'Featured Recipes' }}
@@ -310,6 +321,11 @@
 import { ref, computed, onMounted } from 'vue';
 import { useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
+
+// Refs for scrolling
+const filtersSection = ref(null);
+const recipesSection = ref(null);
+const topSearchInput = ref(null);
 
 // GraphQL Query for Recipes (using Vue Apollo with Hasura)
 const recipesQuery = gql`
@@ -582,6 +598,20 @@ const clearFilters = () => {
   creatorFilter.value = '';
   sortBy.value = 'newest';
   showingAll.value = false;
+};
+
+// Scroll to Filters Section
+const scrollToFilters = () => {
+  if (filtersSection.value) {
+    filtersSection.value.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
+// Scroll to Results Section
+const scrollToResults = () => {
+  if (recipesSection.value) {
+    recipesSection.value.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 };
 
 // Set mounted flag when component is ready (client-side only)

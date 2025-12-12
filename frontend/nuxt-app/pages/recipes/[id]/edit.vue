@@ -44,8 +44,9 @@
             </h2>
             
             <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Recipe Title</label>
+              <label for="recipe-title" class="block text-sm font-medium text-gray-300 mb-2">Recipe Title</label>
               <input 
+                id="recipe-title"
                 v-model="formTitle"
                 type="text" 
                 required
@@ -57,8 +58,9 @@
             </div>
 
             <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Description</label>
+              <label for="recipe-description" class="block text-sm font-medium text-gray-300 mb-2">Description</label>
               <textarea 
+                id="recipe-description"
                 v-model="formDescription"
                 rows="4"
                 required
@@ -79,10 +81,10 @@
                     v-for="cat in categories"
                     :key="cat.id"
                     type="button"
-                    @click="formCategoryId.value = cat.id"
+                    @click="formCategoryId = cat.id"
                     :class="[
                       'group relative overflow-hidden rounded-lg border-2 transition-all duration-300 transform hover:scale-105',
-                      formCategoryId.value === cat.id
+                      formCategoryId === cat.id
                         ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/30'
                         : 'border-white/20 hover:border-white/40'
                     ]"
@@ -113,7 +115,7 @@
                       </div>
                       
                       <!-- Selected Checkmark -->
-                      <div v-if="formCategoryId.value === cat.id" class="absolute top-1 right-1">
+                      <div v-if="formCategoryId === cat.id" class="absolute top-1 right-1">
                         <div class="bg-emerald-500 rounded-full p-1 shadow-lg">
                           <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -128,8 +130,9 @@
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Preparation Time (minutes)</label>
+                <label for="recipe-preparation-time" class="block text-sm font-medium text-gray-300 mb-2">Preparation Time (minutes)</label>
                 <input 
+                  id="recipe-preparation-time"
                   v-model.number="formPreparationTime"
                   type="number"
                   required
@@ -142,8 +145,9 @@
             </div>
 
             <div class="mt-6">
-              <label class="block text-sm font-medium text-gray-300 mb-2">Price (0 for free)</label>
+              <label for="recipe-price" class="block text-sm font-medium text-gray-300 mb-2">Price (0 for free)</label>
               <input 
+                id="recipe-price"
                 v-model.number="formPrice"
                 type="number"
                 step="0.01"
@@ -252,12 +256,25 @@
           </div>
 
           <div v-if="updateError" class="mb-6 p-4 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200">
-            {{ updateError }}
+            <strong>Error:</strong> {{ updateError }}
+          </div>
+          
+          <!-- Show validation errors summary -->
+          <div v-if="Object.keys(formErrors).length > 0" class="mb-6 p-4 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-200">
+            <strong>Please fix the following errors:</strong>
+            <ul class="list-disc list-inside mt-2">
+              <li v-for="(error, field) in formErrors" :key="field">{{ error }}</li>
+            </ul>
           </div>
 
           <div class="flex gap-4">
             <button type="button" @click="$router.push(`/recipes/${recipeId}`)" class="flex-1 px-6 py-4 border border-white/30 rounded-lg text-white">Cancel</button>
-            <button type="submit" :disabled="isSubmitting" class="flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-lg">
+            <button 
+              type="submit" 
+              :disabled="isSubmitting || uploadingImage" 
+              @click="handleFormSubmit($event)"
+              class="flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               {{ isSubmitting ? 'Updating...' : 'Update Recipe' }}
             </button>
           </div>
@@ -270,6 +287,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { jwtDecode } from 'jwt-decode';
 
 const route = useRoute();
 const router = useRouter();
@@ -294,6 +312,26 @@ const formCategoryId = ref(0);
 const formPreparationTime = ref(0);
 const formPrice = ref(0);
 
+// Get current user ID from token
+const getCurrentUserId = () => {
+  if (!token.value) return null;
+  try {
+    const decoded = jwtDecode(token.value);
+    const claims = decoded?.['https://hasura.io/jwt/claims'];
+    if (claims && claims['x-hasura-user-id']) {
+      return parseInt(claims['x-hasura-user-id']);
+    }
+    // Fallback to direct user_id claim
+    if (decoded?.user_id) {
+      return typeof decoded.user_id === 'string' ? parseInt(decoded.user_id) : decoded.user_id;
+    }
+    return null;
+  } catch (err) {
+    console.error('[EDIT] Error decoding token:', err);
+    return null;
+  }
+};
+
 // Redirect if not logged in
 onMounted(async () => {
   console.log('[EDIT] Page mounted, recipeId:', recipeId);
@@ -303,6 +341,9 @@ onMounted(async () => {
     router.push('/login');
     return;
   }
+  
+  const currentUserId = getCurrentUserId();
+  console.log('[EDIT] Current user ID:', currentUserId);
   
   try {
     console.log('[EDIT] Fetching recipe from:', `http://localhost:8081/recipes/${recipeId}`);
@@ -318,6 +359,17 @@ onMounted(async () => {
     
     recipe.value = await recipeRes.json();
     console.log('[EDIT] Recipe loaded:', recipe.value);
+    console.log('[EDIT] Recipe user_id:', recipe.value?.user_id);
+    
+    // Check ownership
+    const recipeUserId = recipe.value?.user_id;
+    if (recipeUserId && currentUserId && recipeUserId !== currentUserId) {
+      console.error('[EDIT] User is not the owner! Recipe user_id:', recipeUserId, 'Current user_id:', currentUserId);
+      updateError.value = 'You do not have permission to edit this recipe';
+      alert('You do not have permission to edit this recipe. Redirecting...');
+      router.push(`/recipes/${recipeId}`);
+      return;
+    }
     
     // Set form values - assign to individual refs
     if (recipe.value) {
@@ -330,6 +382,8 @@ onMounted(async () => {
       formCategoryId.value = recipe.value.category_id || 0;
       formPreparationTime.value = recipe.value.preparation_time || 0;
       formPrice.value = recipe.value.price || 0;
+      
+      console.log('[EDIT] Category ID set to:', formCategoryId.value);
       
       console.log('[EDIT] Form values set:');
       console.log('[EDIT] Title:', formTitle.value);
@@ -520,11 +574,36 @@ const validateForm = () => {
 };
 
 // Handle form submit
-const handleFormSubmit = async () => {
+const handleFormSubmit = async (event) => {
+  console.log('[EDIT] ========== FORM SUBMIT TRIGGERED ==========');
+  console.log('[EDIT] Event:', event);
+  
+  // Prevent default form submission
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  
   updateError.value = '';
   formErrors.value = {};
   
-  if (!validateForm()) {
+  console.log('[EDIT] Current form values:');
+  console.log('[EDIT] - Title:', formTitle.value);
+  console.log('[EDIT] - Description:', formDescription.value);
+  console.log('[EDIT] - Category ID:', formCategoryId.value);
+  console.log('[EDIT] - Preparation Time:', formPreparationTime.value);
+  console.log('[EDIT] - Price:', formPrice.value);
+  console.log('[EDIT] - Ingredients count:', ingredients.value.length);
+  console.log('[EDIT] - Steps count:', steps.value.length);
+  console.log('[EDIT] - Images count:', uploadedImages.value.length);
+  
+  const isValid = validateForm();
+  console.log('[EDIT] Form validation result:', isValid);
+  console.log('[EDIT] Form errors:', formErrors.value);
+  
+  if (!isValid) {
+    console.error('[EDIT] Form validation failed! Errors:', formErrors.value);
+    updateError.value = 'Please fix the errors above before submitting.';
     return;
   }
   
@@ -537,10 +616,16 @@ const handleFormSubmit = async () => {
     price: formPrice.value
   };
   
+  console.log('[EDIT] Form data before submit:', formData);
+  console.log('[EDIT] Calling handleUpdateRecipe...');
+  
   await handleUpdateRecipe(formData);
 };
 
 const handleUpdateRecipe = async (values) => {
+  console.log('[EDIT] ========== handleUpdateRecipe CALLED ==========');
+  console.log('[EDIT] Received values:', values);
+  
   updateError.value = '';
   isSubmitting.value = true;
   
@@ -575,10 +660,17 @@ const handleUpdateRecipe = async (values) => {
   }
 
   // Find featured image
-  const featuredImage = uploadedImages.value.find(img => img.isFeatured);
-  if (!featuredImage) {
+  let featuredImage = uploadedImages.value.find(img => img.isFeatured);
+  if (!featuredImage && uploadedImages.value.length > 0) {
     // Auto-set first image as featured if none selected
     uploadedImages.value[0].isFeatured = true;
+    featuredImage = uploadedImages.value[0];
+  }
+  
+  if (!featuredImage) {
+    updateError.value = 'Please select a featured image';
+    isSubmitting.value = false;
+    return;
   }
   
   // Format ingredients to match backend model (name, quantity, unit)
@@ -610,9 +702,13 @@ const handleUpdateRecipe = async (values) => {
   console.log('[EDIT] Formatted recipe data to send:', recipeData);
 
   try {
+    console.log('[EDIT] ========== SENDING PUT REQUEST ==========');
+    console.log('[EDIT] URL: http://localhost:8081/recipes/' + recipeId);
     console.log('[EDIT] Updating recipe:', recipeId);
     console.log('[EDIT] Recipe data being sent:', JSON.stringify(recipeData, null, 2));
     console.log('[EDIT] Data summary - Title:', recipeData.title, 'Category:', recipeData.category_id, 'Ingredients:', recipeData.ingredients.length, 'Steps:', recipeData.steps.length, 'Images:', recipeData.images.length);
+    console.log('[EDIT] Token present:', !!token.value);
+    console.log('[EDIT] Token preview:', token.value ? token.value.substring(0, 20) + '...' : 'NO TOKEN');
     
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
       method: 'PUT',
@@ -623,7 +719,9 @@ const handleUpdateRecipe = async (values) => {
       body: JSON.stringify(recipeData)
     });
     
+    console.log('[EDIT] ========== RESPONSE RECEIVED ==========');
     console.log('[EDIT] Response status:', response.status, response.statusText);
+    console.log('[EDIT] Response headers:', Object.fromEntries(response.headers.entries()));
 
     // Read response body once (can only be read once)
     const responseText = await response.text();

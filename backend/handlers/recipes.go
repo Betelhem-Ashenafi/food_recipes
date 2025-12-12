@@ -403,11 +403,20 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update recipe
-	_, err = tx.Exec(`UPDATE recipes SET category_id=$1, title=$2, description=$3, preparation_time=$4, price=$5, thumbnail_url=$6 WHERE id=$7`,
+	result, err := tx.Exec(`UPDATE recipes SET category_id=$1, title=$2, description=$3, preparation_time=$4, price=$5, thumbnail_url=$6 WHERE id=$7`,
 		req.CategoryID, req.Title, req.Description, req.PreparationTime, req.Price, req.ThumbnailURL, recipeID)
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Failed to update recipe", http.StatusInternalServerError)
+		log.Printf("[EDIT] Error updating recipe: %v", err)
+		http.Error(w, "Failed to update recipe: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("[EDIT] Recipe update affected %d rows", rowsAffected)
+	if rowsAffected == 0 {
+		tx.Rollback()
+		log.Printf("[EDIT] Warning: No rows updated for recipe ID %d", recipeID)
+		http.Error(w, "Recipe not found or no changes made", http.StatusNotFound)
 		return
 	}
 
@@ -420,29 +429,37 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(`INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES ($1, $2, $3, $4)`, recipeID, ing.Name, ing.Quantity, ing.Unit)
 		if err != nil {
 			tx.Rollback()
-			http.Error(w, "Failed to update ingredients", http.StatusInternalServerError)
+			log.Printf("[EDIT] Error inserting ingredient: %v", err)
+			http.Error(w, "Failed to update ingredients: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
+	log.Printf("[EDIT] Inserted %d ingredients", len(req.Ingredients))
 
 	// Insert new steps
 	for i, step := range req.Steps {
 		_, err = tx.Exec(`INSERT INTO recipe_steps (recipe_id, step_number, instruction, image_url) VALUES ($1, $2, $3, $4)`, recipeID, i+1, step.Instruction, step.ImageURL)
 		if err != nil {
 			tx.Rollback()
-			http.Error(w, "Failed to update steps", http.StatusInternalServerError)
+			log.Printf("[EDIT] Error inserting step %d: %v", i+1, err)
+			http.Error(w, "Failed to update steps: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
+	log.Printf("[EDIT] Inserted %d steps", len(req.Steps))
 
 	// Update images (if provided)
 	if len(req.Images) > 0 {
 		// Delete old images
 		_, _ = tx.Exec(`DELETE FROM recipe_images WHERE recipe_id=$1`, recipeID)
+		log.Printf("[EDIT] Deleted old images for recipe %d", recipeID)
 
 		// Insert new images
 		featuredURL := req.ThumbnailURL
 		for _, imgURL := range req.Images {
+			if imgURL == "" {
+				continue // Skip empty URLs
+			}
 			isFeatured := (imgURL == featuredURL)
 			_, err = tx.Exec(`
 				INSERT INTO recipe_images (recipe_id, url, is_featured)
@@ -450,10 +467,12 @@ func EditRecipeHandler(w http.ResponseWriter, r *http.Request) {
 			`, recipeID, imgURL, isFeatured)
 			if err != nil {
 				tx.Rollback()
-				http.Error(w, "Failed to update images", http.StatusInternalServerError)
+				log.Printf("[EDIT] Error inserting image %s: %v", imgURL, err)
+				http.Error(w, "Failed to update images: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
+		log.Printf("[EDIT] Inserted %d images for recipe %d", len(req.Images), recipeID)
 	}
 
 	// Commit

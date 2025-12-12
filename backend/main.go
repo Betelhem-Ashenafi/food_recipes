@@ -222,6 +222,9 @@ func main() {
 		}
 	})
 
+	// Payment callback (webhook) - no auth required, Chapa calls this
+	http.HandleFunc("/payment/callback", handlers.PaymentCallbackHandler)
+
 	// Register Hasura Action routes
 	http.HandleFunc("/hasura/login", handlers.HasuraLoginHandler)
 	http.HandleFunc("/hasura/signup", handlers.HasuraSignupHandler)

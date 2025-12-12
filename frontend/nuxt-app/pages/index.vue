@@ -11,7 +11,7 @@
         class="w-full h-full object-cover brightness-95 transition-transform duration-[10s] ease-out group-hover:scale-105"
       >
       <!-- Unified Gradient Overlay -->
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Content -->

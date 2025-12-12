@@ -7,7 +7,7 @@
         alt="Elegant Food Presentation" 
         class="w-full h-full object-cover brightness-95"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Content -->
@@ -195,7 +195,7 @@ const tabs = [
   { id: 'purchased', label: 'Purchased' }
 ];
 
-// GraphQL Query for User's Recipes
+// GraphQL Query for User's Recipes (using Vue Apollo with Hasura)
 const myRecipesQuery = gql`
   query GetUserRecipes($userId: Int!) {
     recipes(where: { user_id: { _eq: $userId } }, order_by: { created_at: desc }) {
@@ -210,8 +210,23 @@ const myRecipesQuery = gql`
   }
 `;
 
-const { result: recipesResult, refetch: refetchMyRecipes } = useQuery(myRecipesQuery, { userId: userId.value });
-const myRecipes = computed(() => recipesResult.value?.recipes || []);
+// Skip query if userId is invalid to prevent Apollo errors
+const { result: recipesResult, refetch: refetchMyRecipes } = useQuery(
+  myRecipesQuery, 
+  () => ({ userId: userId.value }),
+  { 
+    skip: () => !userId.value || userId.value === 0,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    returnPartialData: true
+  }
+);
+
+const myRecipes = computed(() => {
+  if (!recipesResult.value || typeof recipesResult.value !== 'object') return [];
+  if (!recipesResult.value.recipes || !Array.isArray(recipesResult.value.recipes)) return [];
+  return recipesResult.value.recipes;
+});
 
 // Function to refetch recipes
 const fetchMyRecipes = async () => {
@@ -349,6 +364,7 @@ onMounted(() => {
     return;
   }
   
+  fetchMyRecipes();
   fetchBookmarkedRecipes();
   fetchPurchasedRecipes();
 });

@@ -5,10 +5,9 @@
       <img 
         src="https://images.unsplash.com/photo-1544025162-d76694265947?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food Spread" 
-        class="w-full h-full object-cover brightness-75"
+        class="w-full h-full object-cover brightness-60"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/20 via-black/5 to-black/30"></div>
-      <div class="absolute inset-0 bg-black/10"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Content Container -->
@@ -308,10 +307,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
-import { defineComponent } from 'vue';
 
 // GraphQL Query for Recipes (using Vue Apollo with Hasura)
 const recipesQuery = gql`
@@ -355,17 +353,48 @@ const categoriesQuery = gql`
   }
 `;
 
-// Fetch Recipes using Vue Apollo
-const { result: recipesData, error: recipesError, loading: recipesPending } = useQuery(recipesQuery);
+// Track if component is mounted to prevent queries from running too early
+const isMounted = ref(false);
 
-// Fetch Categories using Vue Apollo
-const { result: categoriesData, loading: categoriesPending } = useQuery(categoriesQuery);
+// Fetch Recipes using Vue Apollo with error handling
+const { result: recipesData, error: recipesError, loading: recipesPending } = useQuery(
+  recipesQuery,
+  {},
+  {
+    skip: () => !isMounted.value,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    returnPartialData: true
+  }
+);
 
-// Computed properties
-const recipes = computed(() => recipesData.value?.recipes || []);
-const categories = computed(() => categoriesData.value?.categories || []);
-const pending = computed(() => recipesPending.value);
-const error = computed(() => recipesError.value);
+// Fetch Categories using Vue Apollo with error handling
+const { result: categoriesData, loading: categoriesPending, error: categoriesError } = useQuery(
+  categoriesQuery,
+  {},
+  {
+    skip: () => !isMounted.value,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    returnPartialData: true
+  }
+);
+
+// Computed properties with safe null checks
+const recipes = computed(() => {
+  if (!recipesData.value || typeof recipesData.value !== 'object') return [];
+  if (!recipesData.value.recipes || !Array.isArray(recipesData.value.recipes)) return [];
+  return recipesData.value.recipes;
+});
+
+const categories = computed(() => {
+  if (!categoriesData.value || typeof categoriesData.value !== 'object') return [];
+  if (!categoriesData.value.categories || !Array.isArray(categoriesData.value.categories)) return [];
+  return categoriesData.value.categories;
+});
+
+const pending = computed(() => recipesPending.value || categoriesPending.value);
+const error = computed(() => recipesError.value || categoriesError.value);
 
 // Filters and Display State
 const searchQuery = ref('');
@@ -554,6 +583,16 @@ const clearFilters = () => {
   sortBy.value = 'newest';
   showingAll.value = false;
 };
+
+// Set mounted flag when component is ready (client-side only)
+onMounted(() => {
+  if (process.client) {
+    // Small delay to ensure everything is initialized
+    setTimeout(() => {
+      isMounted.value = true;
+    }, 100);
+  }
+});
 </script>
 
 <style scoped>

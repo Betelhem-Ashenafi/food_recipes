@@ -7,7 +7,7 @@
         alt="Elegant Kitchen" 
         class="w-full h-full object-cover brightness-95"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Content -->

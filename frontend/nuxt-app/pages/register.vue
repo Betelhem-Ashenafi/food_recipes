@@ -5,9 +5,9 @@
       <img 
         src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
         alt="Elegant Food" 
-        class="w-full h-full object-cover brightness-95"
+        class="w-full h-full object-cover brightness-60"
       >
-      <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/60"></div>
+      <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
     <!-- Glassmorphism Card -->
@@ -132,7 +132,6 @@
 import { Form, Field, ErrorMessage } from 'vee-validate';
 import * as yup from 'yup';
 import { gql } from '@apollo/client/core';
-import { useMutation } from '@vue/apollo-composable';
 
 const router = useRouter();
 const registerError = ref('');

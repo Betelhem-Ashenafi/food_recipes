@@ -83,19 +83,21 @@ func CheckPurchaseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var count int
+	// Check for successful purchases only
 	err = DB.Get(&count, `
 		SELECT COUNT(*) FROM purchases
-		WHERE user_id = $1 AND recipe_id = $2
+		WHERE user_id = $1 AND recipe_id = $2 AND status = 'success'
 	`, userID, recipeID)
 	
 	if err != nil {
 		http.Error(w, "Failed to check purchase", http.StatusInternalServerError)
 		return
 	}
-
+	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"purchased": count > 0})
 }
+
 
 
 

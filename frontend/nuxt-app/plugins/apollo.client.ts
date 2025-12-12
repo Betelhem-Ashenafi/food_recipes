@@ -23,9 +23,72 @@ export default defineNuxtPlugin((nuxtApp) => {
     uri: 'http://localhost:8080/v1/graphql',
   });
 
+  // Create cache with safe handling for null/undefined
+  const cache = new InMemoryCache({
+    // Add type policies to handle null/undefined safely
+    typePolicies: {
+      Query: {
+        fields: {
+          recipes: {
+            merge(existing = [], incoming) {
+              // Ensure we always return an array, never null/undefined
+              if (!incoming || !Array.isArray(incoming)) {
+                return existing || [];
+              }
+              return incoming;
+            },
+            read(existing) {
+              // Ensure read always returns an array
+              return existing || [];
+            }
+          },
+          categories: {
+            merge(existing = [], incoming) {
+              if (!incoming || !Array.isArray(incoming)) {
+                return existing || [];
+              }
+              return incoming;
+            },
+            read(existing) {
+              return existing || [];
+            }
+          },
+          recipes_by_pk: {
+            merge(existing, incoming) {
+              // Return incoming if it exists, otherwise existing, but never null
+              return incoming || existing || null;
+            },
+            read(existing) {
+              return existing || null;
+            }
+          }
+        }
+      }
+    },
+    // Add result caching policy to prevent null/undefined issues
+    resultCaching: true
+  });
+
   const apolloClient = new ApolloClient({
     link: authLink.concat(httpLink),
-    cache: new InMemoryCache(),
+    cache: cache,
+    // Add default options to handle errors gracefully
+    defaultOptions: {
+      watchQuery: {
+        errorPolicy: 'all',
+        fetchPolicy: 'cache-and-network',
+        // Return partial data even if there are errors
+        returnPartialData: true
+      },
+      query: {
+        errorPolicy: 'all',
+        fetchPolicy: 'cache-first',
+        returnPartialData: true
+      },
+      mutate: {
+        errorPolicy: 'all'
+      }
+    }
   });
 
   // Register as the default Apollo client for the Vue app so `useQuery`/`useMutation` work

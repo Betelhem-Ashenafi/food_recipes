@@ -59,11 +59,27 @@
               </div>
               <Field 
                 name="password" 
-                type="password" 
-                class="block w-full pl-10 pr-3 py-3 border border-white/10 rounded-lg leading-5 bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm transition-colors" 
+                :type="showPassword ? 'text' : 'password'" 
+                class="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-lg leading-5 bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm transition-colors" 
                 placeholder="Password" 
                 :class="{ 'border-red-500 focus:ring-red-500': errors.password }"
               />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-300 focus:outline-none transition-colors"
+                tabindex="-1"
+              >
+                <!-- Eye icon (when password is hidden) -->
+                <svg v-if="!showPassword" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                </svg>
+                <!-- Eye-slash icon (when password is visible) -->
+                <svg v-else class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.994 9.994 0 00-4.838 1.232L3.707 2.293zM14.95 6.05a4 4 0 00-5.9 5.9l1.519-1.52A2.5 2.5 0 0110 8.5c.36 0 .69.08.99.22l1.519-1.52zM2.853 4.853l1.414 1.414A9.975 9.975 0 00.458 10c1.274 4.057 5.064 7 9.542 7 2.29 0 4.408-.738 6.131-1.997l1.414 1.414a1 1 0 001.414-1.414l-14-14a1 1 0 00-1.414 1.414zm2.94 2.94l1.415 1.415A2.5 2.5 0 005 10a4 4 0 004 4 2.5 2.5 0 001.792-.77l1.415 1.415A9.975 9.975 0 0110 13c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 015.293-4.207z" clip-rule="evenodd" />
+                </svg>
+              </button>
             </div>
             <ErrorMessage name="password" class="text-red-400 text-xs mt-1 ml-1" />
           </div>
@@ -115,6 +131,7 @@ import { gql } from '@apollo/client/core';
 
 const router = useRouter();
 const loginError = ref('');
+const showPassword = ref(false);
 
 // Redirect if already logged in
 onMounted(() => {
@@ -141,7 +158,9 @@ const handleLogin = async (values) => {
   
   try {
     // Call REAL backend login endpoint that queries REAL database
-    const data = await $fetch('http://localhost:8081/login', {
+    const config = useRuntimeConfig();
+    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+    const data = await $fetch(`${apiUrl}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

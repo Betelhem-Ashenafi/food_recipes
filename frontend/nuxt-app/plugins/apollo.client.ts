@@ -19,8 +19,17 @@ export default defineNuxtPlugin((nuxtApp) => {
     return { headers: newHeaders };
   });
 
+  // Get Hasura URL from environment
+  const config = useRuntimeConfig();
+  const hasuraUrl = config.public?.hasuraUrl || process.env.NUXT_PUBLIC_HASURA_URL || 'http://localhost:8080/v1/graphql';
+  
+  // Debug log to check what URL is being used
+  if (process.client) {
+    console.log('[APOLLO] Using Hasura URL:', hasuraUrl);
+  }
+  
   const httpLink = createHttpLink({
-    uri: 'http://localhost:8080/v1/graphql',
+    uri: hasuraUrl,
   });
 
   // Create cache with safe handling for null/undefined

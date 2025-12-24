@@ -700,7 +700,7 @@ const submitRating = async (rating) => {
   
   try {
     console.log(`[RATING] Submitting rating ${rating} for recipe ${recipeId}`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/rate`, {
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/rate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

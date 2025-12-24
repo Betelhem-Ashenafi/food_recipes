@@ -172,9 +172,29 @@ const userInfo = computed(() => {
 });
 
 const userName = computed(() => {
+  // First try localStorage (most reliable, stored during login)
+  if (process.client) {
+    const storedName = localStorage.getItem('user_name');
+    if (storedName && typeof storedName === 'string' && storedName.trim() !== '') {
+      return storedName;
+    }
+  }
+  
+  // Then try to get name from top-level JWT claims
+  if (userInfo.value?.name && typeof userInfo.value.name === 'string' && userInfo.value.name.trim() !== '') {
+    return userInfo.value.name;
+  }
+  
+  // Then try Hasura claims
   const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (!claims || typeof claims !== 'object' || claims === null) return 'User';
-  return claims['x-hasura-user-name'] || 'User';
+  if (claims && typeof claims === 'object' && claims !== null) {
+    if (claims['x-hasura-user-name'] && typeof claims['x-hasura-user-name'] === 'string' && claims['x-hasura-user-name'].trim() !== '') {
+      return claims['x-hasura-user-name'];
+    }
+  }
+  
+  // Last resort fallback
+  return 'User';
 });
 const userEmail = computed(() => {
   const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
@@ -249,6 +269,10 @@ const fetchBookmarkedRecipes = async () => {
     if (response.ok) {
       const data = await response.json();
       bookmarkedRecipes.value = data || [];
+    } else if (response.status === 401) {
+      console.warn('⚠️ Token invalid for bookmarks - please log in again');
+      token.value = null;
+      bookmarkedRecipes.value = [];
     } else {
       bookmarkedRecipes.value = [];
     }
@@ -272,6 +296,10 @@ const fetchPurchasedRecipes = async () => {
     if (response.ok) {
       const data = await response.json();
       purchasedRecipes.value = data || [];
+    } else if (response.status === 401) {
+      console.warn('⚠️ Token invalid for purchases - please log in again');
+      token.value = null;
+      purchasedRecipes.value = [];
     } else {
       purchasedRecipes.value = [];
     }

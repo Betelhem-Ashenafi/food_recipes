@@ -98,6 +98,38 @@ func CheckPurchaseHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"purchased": count > 0})
 }
 
+// CheckRatingHandler - GET /recipes/{id}/rate/check
+func CheckRatingHandler(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(userIDKey).(int)
+	
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	recipeID, err := strconv.Atoi(pathParts[2])
+	if err != nil {
+		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
+		return
+	}
+
+	var rating int
+	err = DB.Get(&rating, `
+		SELECT rating FROM ratings
+		WHERE user_id = $1 AND recipe_id = $2
+	`, userID, recipeID)
+	
+	if err != nil {
+		// User hasn't rated yet
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"rated": false, "rating": 0})
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"rated": true, "rating": rating})
+}
+
 
 
 

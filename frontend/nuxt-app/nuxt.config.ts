@@ -9,5 +9,14 @@ export default defineNuxtConfig({
     payloadExtraction: false,
   },
 
+  // Environment variables
+  runtimeConfig: {
+    public: {
+      apiUrl: process.env.NUXT_PUBLIC_API_URL || 'http://localhost:8081',
+      hasuraUrl: process.env.NUXT_PUBLIC_HASURA_URL || 'http://localhost:8080/v1/graphql',
+      hasuraAdminSecret: process.env.NUXT_PUBLIC_HASURA_ADMIN_SECRET || 'myhasurasecret'
+    }
+  },
+
   // Apollo Client is configured via plugin (plugins/apollo.client.ts)
 })

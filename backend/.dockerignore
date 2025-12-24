@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+*.log
+.DS_Store
+.vscode
+.idea
+*.exe
+*.test
+coverage
+

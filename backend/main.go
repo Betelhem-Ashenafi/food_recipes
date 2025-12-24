@@ -145,6 +145,14 @@ func main() {
 				}
 			}
 
+			// Check if it's rate check: /recipes/{id}/rate/check
+			if strings.HasSuffix(subPath, "/rate/check") {
+				if r.Method == http.MethodGet {
+					handlers.AuthMiddleware(handlers.CheckRatingHandler)(w, r)
+					return
+				}
+			}
+
 			// Check if it's like check: /recipes/{id}/like/check
 			if strings.HasSuffix(subPath, "/like/check") {
 				if r.Method == http.MethodGet {

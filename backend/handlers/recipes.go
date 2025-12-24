@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"foodrecipes/models"
 
@@ -21,41 +22,93 @@ var userIDKey = contextKey("user_id")
 
 var DB *sqlx.DB
 
+// validateTokenWithGracePeriod parses and validates a JWT token with a grace period for clock skew
+// Returns the token, claims, and any error
+func validateTokenWithGracePeriod(tokenString string) (*jwt.Token, jwt.MapClaims, error) {
+	// Parse token WITHOUT automatic expiration validation
+	// We'll manually check expiration with a grace period to handle clock skew
+	parser := jwt.Parser{
+		SkipClaimsValidation: true, // Skip automatic expiration check
+	}
+	
+	token, err := parser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte("your-secret-key"), nil
+	})
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("token parse error: %v", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid token claims type")
+	}
+
+	// Manually validate expiration with 5-minute grace period for clock skew
+	now := time.Now()
+	gracePeriod := 5 * time.Minute
+	
+	if exp, ok := claims["exp"].(float64); ok {
+		expTime := time.Unix(int64(exp), 0)
+		remaining := expTime.Sub(now)
+		
+		// Allow tokens that are expired but within grace period (for clock skew)
+		if expTime.Before(now) && now.Sub(expTime) > gracePeriod {
+			return nil, nil, fmt.Errorf("token expired at %v (beyond grace period)", expTime.Format(time.RFC3339))
+		}
+		
+		// Log token expiration info for debugging (only in AuthMiddleware)
+		if remaining > 0 {
+			log.Printf("[AUTH] Token expires in %v (at %v)", remaining, expTime.Format(time.RFC3339))
+		} else if now.Sub(expTime) <= gracePeriod {
+			log.Printf("[AUTH] Token expired but within grace period: expired %v ago", now.Sub(expTime))
+		}
+	} else {
+		return nil, nil, fmt.Errorf("token missing expiration claim")
+	}
+
+	return token, claims, nil
+}
+
 // Middleware to validate JWT and extract User ID
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			log.Printf("[AUTH] Missing Authorization header for %s %s", r.Method, r.URL.Path)
 			http.Error(w, "Authorization header required", http.StatusUnauthorized)
 			return
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return []byte("your-secret-key"), nil
-		})
-
-		if err != nil || !token.Valid {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+		if tokenString == "" {
+			log.Printf("[AUTH] Empty token string for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Invalid token format", http.StatusUnauthorized)
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		// Use helper function to validate token with grace period
+		token, claims, err := validateTokenWithGracePeriod(tokenString)
+		if err != nil {
+			log.Printf("[AUTH] Token validation error for %s %s: %v", r.Method, r.URL.Path, err)
+			http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
 			return
 		}
+		
+		_ = token // Token is valid, we just need claims
 
 		userIDFloat, ok := claims["user_id"].(float64)
 		if !ok {
+			log.Printf("[AUTH] Invalid user_id in token for %s %s, claims: %v", r.Method, r.URL.Path, claims)
 			http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
 			return
 		}
 		userID := int(userIDFloat)
 
+		log.Printf("[AUTH] Authenticated user %d for %s %s", userID, r.Method, r.URL.Path)
 		ctx := context.WithValue(r.Context(), userIDKey, userID)
 		next(w, r.WithContext(ctx))
 	}
@@ -69,21 +122,11 @@ func CreateRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte("your-secret-key"), nil
-	})
-
-	if err != nil || !token.Valid {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+	
+	// Use helper function to validate token with grace period
+	_, claims, err := validateTokenWithGracePeriod(tokenString)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
 		return
 	}
 
@@ -513,21 +556,11 @@ func DeleteRecipeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte("your-secret-key"), nil
-	})
-
-	if err != nil || !token.Valid {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+	
+	// Use helper function to validate token with grace period
+	_, claims, err := validateTokenWithGracePeriod(tokenString)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
 		return
 	}
 

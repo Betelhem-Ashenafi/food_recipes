@@ -275,16 +275,19 @@
             @click="submitRating(star)"
             :disabled="ratingLoading"
             class="transition-transform hover:scale-110"
+            :title="userRating > 0 ? `Your rating: ${userRating} stars` : `Click to rate ${star} stars`"
           >
             <svg 
-              class="w-10 h-10" 
-              :fill="star <= userRating ? '#fbbf24' : 'none'" 
-              :stroke="star <= userRating ? '#fbbf24' : '#9ca3af'" 
+              class="w-10 h-10 transition-colors" 
+              :fill="star <= currentUserRating ? '#fbbf24' : 'none'" 
+              :stroke="star <= currentUserRating ? '#fbbf24' : '#9ca3af'" 
               viewBox="0 0 24 24"
             >
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
             </svg>
           </button>
+          <span v-if="currentUserRating > 0" class="text-yellow-400 ml-3 text-sm font-semibold">Your rating: {{ currentUserRating }} ⭐</span>
+          <span v-else class="text-gray-400 ml-3 text-sm">Click a star to rate</span>
         </div>
         <div v-else class="p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg text-center">
           <p class="text-white">Please <NuxtLink to="/login" class="text-emerald-400 hover:text-emerald-300 font-semibold underline">log in</NuxtLink> to rate this recipe.</p>
@@ -537,26 +540,47 @@ const fetchSteps = async () => {
 // Fetch Comments (REST API)
 const commentsData = ref([]);
 const fetchComments = async () => {
+  if (!recipeId) {
+    console.warn('[COMMENTS] No recipe ID, skipping fetch');
+    return;
+  }
   try {
+    console.log(`[COMMENTS] Fetching comments for recipe ${recipeId}`);
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}/comments`);
     if (response.ok) {
-      commentsData.value = await response.json();
+      const data = await response.json();
+      commentsData.value = data || [];
+      console.log(`[COMMENTS] Loaded ${commentsData.value.length} comments`);
+    } else {
+      console.error(`[COMMENTS] Failed to fetch: ${response.status} ${response.statusText}`);
+      commentsData.value = [];
     }
   } catch (err) {
-    console.error('Error fetching comments:', err);
+    console.error('[COMMENTS] Error fetching comments:', err);
+    commentsData.value = [];
   }
 };
 
 // Fetch Rating (REST API)
 const ratingData = ref(null);
 const fetchRating = async () => {
+  if (!recipeId) {
+    console.warn('[RATING] No recipe ID, skipping fetch');
+    return;
+  }
   try {
+    console.log(`[RATING] Fetching rating for recipe ${recipeId}`);
     const response = await fetch(`http://localhost:8081/recipes/${recipeId}/rate`);
     if (response.ok) {
       ratingData.value = await response.json();
+      console.log(`[RATING] Loaded rating:`, ratingData.value);
+    } else {
+      console.error(`[RATING] Failed to fetch: ${response.status} ${response.statusText}`);
+      ratingData.value = null;
     }
   } catch (err) {
-    console.error('Error fetching rating:', err);
+    console.error('[RATING] Error fetching rating:', err);
+    ratingData.value = null;
   }
 };
 
@@ -649,6 +673,13 @@ const userRating = ref(0);
 const ratingLoading = ref(false);
 const ratingSuccess = ref(false);
 
+// Computed to ensure reactivity for star display
+const currentUserRating = computed(() => {
+  const rating = Number(userRating.value) || 0;
+  console.log('[RATING] Current user rating computed:', rating);
+  return rating;
+});
+
 const submitRating = async (rating) => {
   if (!token.value) {
     router.push('/login');
@@ -679,7 +710,8 @@ const submitRating = async (rating) => {
     if (response.ok) {
       const data = await response.json().catch(() => ({}));
       console.log(`[RATING] Success:`, data);
-      userRating.value = rating;
+      userRating.value = parseInt(rating);
+      console.log(`[RATING] userRating.value set to: ${userRating.value}`);
       ratingSuccess.value = true;
       await fetchRating(); // Refresh average rating
       setTimeout(() => { ratingSuccess.value = false; }, 3000);
@@ -824,10 +856,32 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
+// Helper function to check if token is expired
+const isTokenExpired = () => {
+  if (!token.value) return true;
+  try {
+    const decoded = jwtDecode(token.value);
+    if (decoded.exp && decoded.exp < Date.now() / 1000) {
+      return true;
+    }
+    return false;
+  } catch (err) {
+    return true;
+  }
+};
+
 // Check if user liked/bookmarked/purchased this recipe
 const checkUserInteractions = async () => {
   if (!token.value || !recipe.value) {
     console.log('Skipping interaction check - no token or recipe');
+    return;
+  }
+  
+  // Check if token is expired
+  if (isTokenExpired()) {
+    console.warn('⚠️ Token is expired - please log in again');
+    // Clear expired token
+    token.value = null;
     return;
   }
   
@@ -840,6 +894,9 @@ const checkUserInteractions = async () => {
       if (likeCheck.ok) {
         const likeData = await likeCheck.json();
         isLiked.value = likeData.liked || false;
+      } else if (likeCheck.status === 401) {
+        console.warn('⚠️ Token invalid for like check - please log in again');
+        token.value = null;
       }
     } catch (err) {
       console.warn('Error checking like:', err);
@@ -853,6 +910,9 @@ const checkUserInteractions = async () => {
       if (bookmarkCheck.ok) {
         const bookmarkData = await bookmarkCheck.json();
         isBookmarked.value = bookmarkData.bookmarked || false;
+      } else if (bookmarkCheck.status === 401) {
+        console.warn('⚠️ Token invalid for bookmark check - please log in again');
+        token.value = null;
       }
     } catch (err) {
       console.warn('Error checking bookmark:', err);
@@ -883,6 +943,11 @@ const checkUserInteractions = async () => {
           // Trigger content load
           await loadContentIfAllowed();
         }
+      } else if (purchaseCheck.status === 401) {
+        console.warn('⚠️ Token invalid for purchase check - please log in again');
+        const errorText = await purchaseCheck.text().catch(() => 'Unknown error');
+        console.warn('Error details:', errorText);
+        token.value = null;
       } else {
         console.warn('⚠️ Purchase check failed:', purchaseCheck.status, purchaseCheck.statusText);
         const errorText = await purchaseCheck.text().catch(() => 'Unknown error');
@@ -890,6 +955,34 @@ const checkUserInteractions = async () => {
       }
     } catch (err) {
       console.error('❌ Error checking purchase:', err);
+    }
+    
+    // Check user's rating
+    try {
+      const ratingCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/rate/check`, {
+        headers: { 'Authorization': `Bearer ${token.value}` }
+      });
+      if (ratingCheck.ok) {
+        const ratingData = await ratingCheck.json();
+        console.log('⭐ Rating check response:', ratingData);
+        if (ratingData.rated && ratingData.rating && ratingData.rating > 0) {
+          userRating.value = parseInt(ratingData.rating);
+          console.log(`⭐ User's previous rating set to: ${userRating.value} stars`);
+        } else {
+          userRating.value = 0;
+          console.log('⭐ User has not rated this recipe yet');
+        }
+      } else if (ratingCheck.status === 401) {
+        console.warn('⚠️ Token invalid for rating check - please log in again');
+        token.value = null;
+        userRating.value = 0;
+      } else {
+        console.warn('⚠️ Rating check failed:', ratingCheck.status);
+        userRating.value = 0;
+      }
+    } catch (err) {
+      console.warn('Error checking user rating:', err);
+      userRating.value = 0;
     }
   } catch (err) {
     console.error('Error checking interactions:', err);
@@ -936,6 +1029,12 @@ watch(() => recipe.value, async (newRecipe) => {
     console.log('📝 Recipe loaded:', newRecipe.title);
     await fetchRecipeImages();
     
+    // Fetch comments and ratings (these are public, always fetch)
+    await Promise.all([
+      fetchComments(),
+      fetchRating()
+    ]);
+    
     // Check user interactions first (including purchase status)
     if (token.value) {
       await checkUserInteractions();
@@ -981,6 +1080,13 @@ watch(() => isOwner.value, async (owner) => {
 // Load data on mount
 onMounted(async () => {
   console.log('🚀 Component mounted, recipe:', recipe.value?.title || 'not loaded yet');
+  
+  // Comments and ratings are public - fetch them immediately regardless of recipe state
+  console.log('📥 Fetching public data (comments, ratings)...');
+  await Promise.all([
+    fetchComments(),
+    fetchRating()
+  ]);
   
   // Wait for recipe to load from Apollo query
   if (recipe.value) {

@@ -314,6 +314,18 @@
         </div>
       </div>
     </div>
+    
+    <!-- Floating Action Button for Mobile - Create Recipe -->
+    <NuxtLink 
+      v-if="isAuthenticated"
+      to="/create"
+      class="fixed bottom-6 right-6 z-50 sm:hidden bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full p-4 shadow-2xl hover:shadow-emerald-500/50 transition-all transform hover:scale-110 active:scale-95"
+      title="Create Recipe"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      </svg>
+    </NuxtLink>
   </div>
 </template>
 
@@ -321,6 +333,10 @@
 import { ref, computed, onMounted } from 'vue';
 import { useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
+
+// Authentication check
+const token = useCookie('auth_token');
+const isAuthenticated = computed(() => !!token.value);
 
 // Refs for scrolling
 const filtersSection = ref(null);

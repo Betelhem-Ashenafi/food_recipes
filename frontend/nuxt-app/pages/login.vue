@@ -160,6 +160,7 @@ const handleLogin = async (values) => {
     // Call REAL backend login endpoint that queries REAL database
     const config = useRuntimeConfig();
     const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+    console.log('[LOGIN] Using API URL:', apiUrl); // Debug log
     const data = await $fetch(`${apiUrl}/login`, {
       method: 'POST',
       headers: {

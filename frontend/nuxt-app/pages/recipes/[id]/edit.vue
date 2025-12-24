@@ -345,10 +345,14 @@ onMounted(async () => {
   const currentUserId = getCurrentUserId();
   console.log('[EDIT] Current user ID:', currentUserId);
   
+  // Get API URL from runtime config
+  const config = useRuntimeConfig();
+  const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
+  
   try {
-    console.log('[EDIT] Fetching recipe from:', `http://localhost:8081/recipes/${recipeId}`);
+    console.log('[EDIT] Fetching recipe from:', `${getApiUrl()}/recipes/${recipeId}`);
     // Fetch recipe
-    const recipeRes = await fetch(`http://localhost:8081/recipes/${recipeId}`);
+    const recipeRes = await fetch(`${getApiUrl()}/recipes/${recipeId}`);
     console.log('[EDIT] Recipe response status:', recipeRes.status);
     
     if (!recipeRes.ok) {
@@ -393,7 +397,7 @@ onMounted(async () => {
     }
 
     // Fetch ingredients
-    const ingRes = await fetch(`http://localhost:8081/recipes/${recipeId}/ingredients`);
+    const ingRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/ingredients`);
     if (ingRes.ok) {
       const ingData = await ingRes.json();
       // Ensure ingredients have the right structure
@@ -410,7 +414,7 @@ onMounted(async () => {
     }
 
     // Fetch steps
-    const stepsRes = await fetch(`http://localhost:8081/recipes/${recipeId}/steps`);
+    const stepsRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/steps`);
     if (stepsRes.ok) {
       const stepsData = await stepsRes.json();
       // Ensure steps have the right structure
@@ -426,14 +430,14 @@ onMounted(async () => {
     }
 
     // Fetch existing images
-    const imagesRes = await fetch(`http://localhost:8081/recipes/${recipeId}/images`);
+    const imagesRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/images`);
     if (imagesRes.ok) {
       const images = await imagesRes.json();
       uploadedImages.value = images.map(img => ({ url: img.url, isFeatured: img.is_featured }));
     }
 
     // Fetch categories
-    const catRes = await fetch('http://localhost:8081/categories');
+    const catRes = await fetch(`${getApiUrl()}/categories`);
     if (catRes.ok) {
       categories.value = await catRes.json();
       console.log('[EDIT] Categories loaded:', categories.value.length);
@@ -492,7 +496,7 @@ const handleMultipleImageUpload = async (event) => {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await fetch('http://localhost:8081/upload', {
+      const response = await fetch(`${getApiUrl()}/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token.value}`
@@ -703,14 +707,14 @@ const handleUpdateRecipe = async (values) => {
 
   try {
     console.log('[EDIT] ========== SENDING PUT REQUEST ==========');
-    console.log('[EDIT] URL: http://localhost:8081/recipes/' + recipeId);
+    console.log('[EDIT] URL:', `${getApiUrl()}/recipes/${recipeId}`);
     console.log('[EDIT] Updating recipe:', recipeId);
     console.log('[EDIT] Recipe data being sent:', JSON.stringify(recipeData, null, 2));
     console.log('[EDIT] Data summary - Title:', recipeData.title, 'Category:', recipeData.category_id, 'Ingredients:', recipeData.ingredients.length, 'Steps:', recipeData.steps.length, 'Images:', recipeData.images.length);
     console.log('[EDIT] Token present:', !!token.value);
     console.log('[EDIT] Token preview:', token.value ? token.value.substring(0, 20) + '...' : 'NO TOKEN');
     
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

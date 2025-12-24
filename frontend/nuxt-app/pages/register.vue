@@ -179,7 +179,9 @@ const handleRegister = async (values) => {
   
   try {
     // Call REAL backend signup endpoint that inserts into REAL database
-    const data = await $fetch('http://localhost:8081/signup', {
+    const config = useRuntimeConfig();
+    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+    const data = await $fetch(`${apiUrl}/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

@@ -459,10 +459,14 @@ const recipe = computed(() => {
 const recipeImages = ref([]);
 const currentImageIndex = ref(0);
 
+// Get API URL from runtime config
+const config = useRuntimeConfig();
+const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
+
 const fetchRecipeImages = async () => {
   try {
     // Fetch images from recipe_images table
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/images`);
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/images`);
     if (response.ok) {
       const images = await response.json();
       if (images && images.length > 0) {
@@ -514,7 +518,7 @@ const previousImage = () => {
 const ingredientsData = ref([]);
 const fetchIngredients = async () => {
   try {
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/ingredients`);
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/ingredients`);
     if (response.ok) {
       ingredientsData.value = await response.json();
     }
@@ -527,7 +531,7 @@ const fetchIngredients = async () => {
 const stepsData = ref([]);
 const fetchSteps = async () => {
   try {
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/steps`);
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/steps`);
     if (response.ok) {
       const data = await response.json();
       stepsData.value = data.sort((a, b) => a.step_number - b.step_number);
@@ -546,7 +550,7 @@ const fetchComments = async () => {
   }
   try {
     console.log(`[COMMENTS] Fetching comments for recipe ${recipeId}`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/comments`);
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/comments`);
     if (response.ok) {
       const data = await response.json();
       commentsData.value = data || [];
@@ -570,7 +574,7 @@ const fetchRating = async () => {
   }
   try {
     console.log(`[RATING] Fetching rating for recipe ${recipeId}`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/rate`);
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/rate`);
     if (response.ok) {
       ratingData.value = await response.json();
       console.log(`[RATING] Loaded rating:`, ratingData.value);
@@ -601,7 +605,7 @@ const toggleLike = async () => {
   try {
     const method = isLiked.value ? 'DELETE' : 'POST';
     console.log(`[LIKE] ${method} /recipes/${recipeId}/like`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/like`, {
+      const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/like`, {
       method,
       headers: { 
         'Authorization': `Bearer ${token.value}`,
@@ -641,7 +645,7 @@ const toggleBookmark = async () => {
   try {
     const method = isBookmarked.value ? 'DELETE' : 'POST';
     console.log(`[BOOKMARK] ${method} /recipes/${recipeId}/bookmark`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/bookmark`, {
+      const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/bookmark`, {
       method,
       headers: { 
         'Authorization': `Bearer ${token.value}`,
@@ -746,7 +750,7 @@ const submitComment = async () => {
   
   try {
     console.log(`[COMMENT] POST /recipes/${recipeId}/comments`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}/comments`, {
+      const response = await fetch(`${getApiUrl()}/recipes/${recipeId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -786,7 +790,7 @@ const handleBuyRecipe = async () => {
   buying.value = true;
   
   try {
-    const response = await fetch('http://localhost:8081/payment/initialize', {
+      const response = await fetch(`${getApiUrl()}/payment/initialize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -888,7 +892,7 @@ const checkUserInteractions = async () => {
   try {
     // Check like
     try {
-      const likeCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/like/check`, {
+      const likeCheck = await fetch(`${getApiUrl()}/recipes/${recipeId}/like/check`, {
         headers: { 'Authorization': `Bearer ${token.value}` }
       });
       if (likeCheck.ok) {
@@ -904,7 +908,7 @@ const checkUserInteractions = async () => {
     
     // Check bookmark
     try {
-      const bookmarkCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/bookmark/check`, {
+      const bookmarkCheck = await fetch(`${getApiUrl()}/recipes/${recipeId}/bookmark/check`, {
         headers: { 'Authorization': `Bearer ${token.value}` }
       });
       if (bookmarkCheck.ok) {
@@ -920,7 +924,7 @@ const checkUserInteractions = async () => {
     
     // Check purchase - CRITICAL for paid recipes
     try {
-      const purchaseCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/purchase/check`, {
+      const purchaseCheck = await fetch(`${getApiUrl()}/recipes/${recipeId}/purchase/check`, {
         headers: { 'Authorization': `Bearer ${token.value}` }
       });
       
@@ -959,7 +963,7 @@ const checkUserInteractions = async () => {
     
     // Check user's rating
     try {
-      const ratingCheck = await fetch(`http://localhost:8081/recipes/${recipeId}/rate/check`, {
+      const ratingCheck = await fetch(`${getApiUrl()}/recipes/${recipeId}/rate/check`, {
         headers: { 'Authorization': `Bearer ${token.value}` }
       });
       if (ratingCheck.ok) {

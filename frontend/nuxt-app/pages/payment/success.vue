@@ -49,6 +49,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+
+// Get API URL from runtime config
+const config = useRuntimeConfig();
+const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
 import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
@@ -133,7 +137,7 @@ const verifyPayment = async () => {
       try {
         console.log('💳 Verifying payment with tx_ref:', txRef);
         
-        const response = await fetch(`http://localhost:8081/payment/verify?tx_ref=${txRef}`, {
+        const response = await fetch(`${getApiUrl()}/payment/verify?tx_ref=${txRef}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -160,7 +164,7 @@ const verifyPayment = async () => {
       try {
         console.log(`💳 Verifying payment with recipe_id: ${extractedRecipeId} (attempt ${retryCount + 1}/${maxRetries})`);
         
-        const response = await fetch(`http://localhost:8081/payment/verify?recipe_id=${extractedRecipeId}`, {
+        const response = await fetch(`${getApiUrl()}/payment/verify?recipe_id=${extractedRecipeId}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -200,7 +204,7 @@ const verifyPayment = async () => {
 
   // Fetch recipe details to show title
   try {
-    const recipeResponse = await fetch(`http://localhost:8081/recipes/${extractedRecipeId}`);
+    const recipeResponse = await fetch(`${getApiUrl()}/recipes/${extractedRecipeId}`);
     if (recipeResponse.ok) {
       recipe.value = await recipeResponse.json();
       // Ensure recipe has id property

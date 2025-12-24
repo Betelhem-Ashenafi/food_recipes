@@ -209,6 +209,10 @@ const userId = computed(() => {
 
 // Tabs
 const activeTab = ref('recipes');
+
+// Get API URL from runtime config
+const config = useRuntimeConfig();
+const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
 const tabs = [
   { id: 'recipes', label: 'My Recipes' },
   { id: 'bookmarked', label: 'Bookmarked' },
@@ -263,7 +267,7 @@ const fetchBookmarkedRecipes = async () => {
     return;
   }
   try {
-    const response = await fetch(`http://localhost:8081/users/${userId.value}/bookmarks`, {
+    const response = await fetch(`${getApiUrl()}/users/${userId.value}/bookmarks`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
     });
     if (response.ok) {
@@ -290,7 +294,7 @@ const fetchPurchasedRecipes = async () => {
     return;
   }
   try {
-    const response = await fetch(`http://localhost:8081/users/${userId.value}/purchases`, {
+    const response = await fetch(`${getApiUrl()}/users/${userId.value}/purchases`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
     });
     if (response.ok) {
@@ -349,7 +353,7 @@ const deleteRecipe = async (recipeId) => {
   
   try {
     console.log(`[DELETE] Deleting recipe ${recipeId}`);
-    const response = await fetch(`http://localhost:8081/recipes/${recipeId}`, {
+    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}`, {
       method: 'DELETE',
       headers: { 
         'Authorization': `Bearer ${token.value}`,

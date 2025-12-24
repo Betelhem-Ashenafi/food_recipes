@@ -361,7 +361,9 @@ const categories = ref([]);
 const selectedCategoryId = ref(null);
 const fetchCategories = async () => {
   try {
-    const data = await $fetch('http://localhost:8081/categories');
+    const config = useRuntimeConfig();
+    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+    const data = await $fetch(`${apiUrl}/categories`);
     categories.value = data || [];
   } catch (err) {
     console.error('Error fetching categories:', err);
@@ -447,7 +449,9 @@ const handleMultipleImageUpload = async (event) => {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await fetch('http://localhost:8081/upload', {
+      const config = useRuntimeConfig();
+      const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+      const response = await fetch(`${apiUrl}/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token.value}`
@@ -556,7 +560,9 @@ const handleCreateRecipe = async (values) => {
     console.log('[CREATE] Submitting recipe:', recipeData);
     console.log('[CREATE] Token present:', !!token.value);
     
-    const response = await fetch('http://localhost:8081/recipes', {
+    const config = useRuntimeConfig();
+    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
+    const response = await fetch(`${apiUrl}/recipes`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

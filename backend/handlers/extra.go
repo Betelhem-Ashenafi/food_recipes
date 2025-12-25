@@ -49,9 +49,14 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Construct URL
-	// Assuming server runs on localhost:8081
-	// In production, this should be configured via env var
-	fileURL := fmt.Sprintf("http://localhost:8081/uploads/%s", filename)
+	// Use API_URL environment variable, fallback to localhost for local dev
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8081"
+	}
+	// Remove trailing slash if present
+	apiURL = strings.TrimSuffix(apiURL, "/")
+	fileURL := fmt.Sprintf("%s/uploads/%s", apiURL, filename)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -294,7 +299,14 @@ func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Construct URL
-	fileURL := fmt.Sprintf("http://localhost:8081/uploads/%s", filename)
+	// Use API_URL environment variable, fallback to localhost for local dev
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8081"
+	}
+	// Remove trailing slash if present
+	apiURL = strings.TrimSuffix(apiURL, "/")
+	fileURL := fmt.Sprintf("%s/uploads/%s", apiURL, filename)
 
 	// Return Hasura action response format
 	json.NewEncoder(w).Encode(HasuraUploadResponse{

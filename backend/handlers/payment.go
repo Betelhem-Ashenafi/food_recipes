@@ -115,17 +115,52 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 	apiURL = strings.TrimSuffix(apiURL, "/")
 
 	// Get Frontend URL for return URL
-	frontendURL := getEnv("FRONTEND_URL", "http://localhost:3000")
+	// Try multiple methods to get the frontend URL
+	frontendURL := getEnv("FRONTEND_URL", "")
+	
+	// If not set in env, try to get from request Origin header
+	if frontendURL == "" {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			frontendURL = origin
+			fmt.Printf("[PAYMENT] Using Origin header: %s\n", frontendURL)
+		}
+	}
+	
+	// If still not set, try Referer header
+	if frontendURL == "" {
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			// Extract base URL from referer
+			if strings.HasPrefix(referer, "http://") || strings.HasPrefix(referer, "https://") {
+				// Parse URL to get just the origin
+				parts := strings.Split(referer, "/")
+				if len(parts) >= 3 {
+					frontendURL = strings.Join(parts[0:3], "/")
+					fmt.Printf("[PAYMENT] Using Referer header: %s\n", frontendURL)
+				}
+			}
+		}
+	}
+	
+	// Last resort: use default (but this should rarely happen)
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+		fmt.Printf("[PAYMENT] WARNING: Using default localhost:3000 - FRONTEND_URL not set and no headers available\n")
+	}
+	
 	frontendURL = strings.TrimSuffix(frontendURL, "/")
 	
 	// Debug: Log the frontend URL being used
 	fmt.Printf("[PAYMENT] FRONTEND_URL from env: %s\n", os.Getenv("FRONTEND_URL"))
+	fmt.Printf("[PAYMENT] Origin header: %s\n", r.Header.Get("Origin"))
+	fmt.Printf("[PAYMENT] Referer header: %s\n", r.Header.Get("Referer"))
 	fmt.Printf("[PAYMENT] Using frontendURL: %s\n", frontendURL)
 
 	// Prepare request to Chapa
 	returnURL := fmt.Sprintf("%s/payment/success?recipe_id=%d&tx_ref=%s", frontendURL, req.RecipeID, txRef)
 	fmt.Printf("[PAYMENT] ReturnURL being sent to Chapa: %s\n", returnURL)
-	
+
 	chapaReq := ChapaInitializeRequest{
 		Amount:      req.Amount,
 		Currency:    "ETB",
@@ -133,8 +168,8 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 		FirstName:   req.FirstName,
 		LastName:    req.LastName,
 		TxRef:       txRef,
-		CallbackURL: fmt.Sprintf("%s/payment/callback", apiURL),                                                 // Webhook (optional)
-		ReturnURL:   returnURL, // Frontend success page with recipe_id
+		CallbackURL: fmt.Sprintf("%s/payment/callback", apiURL), // Webhook (optional)
+		ReturnURL:   returnURL,                                  // Frontend success page with recipe_id
 	}
 
 	jsonData, _ := json.Marshal(chapaReq)

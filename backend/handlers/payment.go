@@ -117,8 +117,15 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 	// Get Frontend URL for return URL
 	frontendURL := getEnv("FRONTEND_URL", "http://localhost:3000")
 	frontendURL = strings.TrimSuffix(frontendURL, "/")
+	
+	// Debug: Log the frontend URL being used
+	fmt.Printf("[PAYMENT] FRONTEND_URL from env: %s\n", os.Getenv("FRONTEND_URL"))
+	fmt.Printf("[PAYMENT] Using frontendURL: %s\n", frontendURL)
 
 	// Prepare request to Chapa
+	returnURL := fmt.Sprintf("%s/payment/success?recipe_id=%d&tx_ref=%s", frontendURL, req.RecipeID, txRef)
+	fmt.Printf("[PAYMENT] ReturnURL being sent to Chapa: %s\n", returnURL)
+	
 	chapaReq := ChapaInitializeRequest{
 		Amount:      req.Amount,
 		Currency:    "ETB",
@@ -127,7 +134,7 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 		LastName:    req.LastName,
 		TxRef:       txRef,
 		CallbackURL: fmt.Sprintf("%s/payment/callback", apiURL),                                                 // Webhook (optional)
-		ReturnURL:   fmt.Sprintf("%s/payment/success?recipe_id=%d&tx_ref=%s", frontendURL, req.RecipeID, txRef), // Frontend success page with recipe_id
+		ReturnURL:   returnURL, // Frontend success page with recipe_id
 	}
 
 	jsonData, _ := json.Marshal(chapaReq)

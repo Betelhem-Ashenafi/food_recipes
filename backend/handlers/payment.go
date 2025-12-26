@@ -110,6 +110,14 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get API URL for callback (backend URL)
+	apiURL := getEnv("API_URL", "http://localhost:8081")
+	apiURL = strings.TrimSuffix(apiURL, "/")
+
+	// Get Frontend URL for return URL
+	frontendURL := getEnv("FRONTEND_URL", "http://localhost:3000")
+	frontendURL = strings.TrimSuffix(frontendURL, "/")
+
 	// Prepare request to Chapa
 	chapaReq := ChapaInitializeRequest{
 		Amount:      req.Amount,
@@ -118,8 +126,8 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 		FirstName:   req.FirstName,
 		LastName:    req.LastName,
 		TxRef:       txRef,
-		CallbackURL: "http://localhost:8081/payment/callback", // Webhook (optional)
-		ReturnURL:   fmt.Sprintf("http://localhost:3000/payment/success?recipe_id=%d&tx_ref=%s", req.RecipeID, txRef),  // Frontend success page with recipe_id
+		CallbackURL: fmt.Sprintf("%s/payment/callback", apiURL),                                                 // Webhook (optional)
+		ReturnURL:   fmt.Sprintf("%s/payment/success?recipe_id=%d&tx_ref=%s", frontendURL, req.RecipeID, txRef), // Frontend success page with recipe_id
 	}
 
 	jsonData, _ := json.Marshal(chapaReq)
@@ -164,7 +172,7 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 	txRef := r.URL.Query().Get("tx_ref")
 	recipeIDStr := r.URL.Query().Get("recipe_id")
-	
+
 	// If no tx_ref but recipe_id is provided, try to verify by checking recent purchases
 	// and also try to verify with Chapa using recent tx_ref patterns
 	if txRef == "" && recipeIDStr != "" {
@@ -173,13 +181,13 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		
+
 		recipeID, err := strconv.Atoi(recipeIDStr)
 		if err != nil {
 			http.Error(w, "Invalid recipe_id", http.StatusBadRequest)
 			return
 		}
-		
+
 		// First, check if user has a recent successful purchase for this recipe (within last 30 minutes)
 		var count int
 		err = DB.Get(&count, `
@@ -187,13 +195,13 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 			WHERE user_id = $1 AND recipe_id = $2 AND status = 'success'
 			AND created_at > NOW() - INTERVAL '30 minutes'
 		`, userID, recipeID)
-		
+
 		if err != nil {
 			fmt.Printf("Error checking purchase: %v\n", err)
 			http.Error(w, "Failed to check purchase", http.StatusInternalServerError)
 			return
 		}
-		
+
 		if count > 0 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{
@@ -202,7 +210,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		
+
 		// Check for pending purchases and try to verify them with Chapa
 		var pendingTxRef string
 		err = DB.Get(&pendingTxRef, `
@@ -212,12 +220,12 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 			ORDER BY created_at DESC
 			LIMIT 1
 		`, userID, recipeID)
-		
+
 		fmt.Printf("Checking for pending purchases: user_id=%d, recipe_id=%d, found_tx_ref=%s, error=%v\n", userID, recipeID, pendingTxRef, err)
-		
+
 		if err == nil && pendingTxRef != "" {
 			fmt.Printf("Found pending purchase with tx_ref: %s\n", pendingTxRef)
-			
+
 			// Since user is verifying (came from payment success page), assume payment was successful
 			// Mark the pending purchase as success immediately
 			// This is safe because if they're on the success page, Chapa redirected them there after successful payment
@@ -226,13 +234,13 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 				UPDATE purchases SET status = 'success'
 				WHERE chapa_tx_ref = $1 AND user_id = $2 AND recipe_id = $3 AND status = 'pending'
 			`, pendingTxRef, userID, recipeID)
-			
+
 			if updateErr != nil {
 				fmt.Printf("Failed to update purchase: %v\n", updateErr)
 			} else {
 				rowsAffected, _ := result.RowsAffected()
 				fmt.Printf("Purchase marked as success: tx_ref=%s, rows_affected=%d\n", pendingTxRef, rowsAffected)
-				
+
 				if rowsAffected > 0 {
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{
@@ -242,18 +250,18 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			
+
 			// Also try to verify with Chapa as backup (but don't wait for it)
 			go func() {
 				client := &http.Client{Timeout: 10 * time.Second}
 				reqChapa, _ := http.NewRequest("GET", Chapa.BaseURL+"/transaction/verify/"+pendingTxRef, nil)
 				reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-				
+
 				resp, err := client.Do(reqChapa)
 				if err == nil && resp.StatusCode == 200 {
 					body, _ := io.ReadAll(resp.Body)
 					resp.Body.Close()
-					
+
 					var verifyResp struct {
 						Status  string `json:"status"`
 						Message string `json:"message"`
@@ -263,7 +271,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 						} `json:"data"`
 					}
 					json.Unmarshal(body, &verifyResp)
-					
+
 					if verifyResp.Status == "success" && verifyResp.Data.Status == "success" {
 						fmt.Printf("Chapa verification confirmed: tx_ref=%s\n", pendingTxRef)
 					} else {
@@ -274,7 +282,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Printf("No pending purchase found for user_id=%d, recipe_id=%d (error: %v)\n", userID, recipeID, err)
 		}
-		
+
 		// If no purchase found, try to verify with Chapa by trying recent tx_ref patterns
 		// Try tx_refs from the last 5 minutes (300 seconds)
 		currentTime := time.Now().Unix()
@@ -282,17 +290,17 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 			// Try timestamps from current time going back
 			tryTimestamp := currentTime - int64(i*30) // Try every 30 seconds
 			tryTxRef := fmt.Sprintf("tx-%d-%d", recipeID, tryTimestamp)
-			
+
 			// Try to verify this tx_ref with Chapa
 			client := &http.Client{Timeout: 5 * time.Second}
 			reqChapa, _ := http.NewRequest("GET", Chapa.BaseURL+"/transaction/verify/"+tryTxRef, nil)
 			reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-			
+
 			resp, err := client.Do(reqChapa)
 			if err == nil && resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				
+
 				var verifyResp struct {
 					Status  string `json:"status"`
 					Message string `json:"message"`
@@ -302,7 +310,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 					} `json:"data"`
 				}
 				json.Unmarshal(body, &verifyResp)
-				
+
 				// If payment is successful, record it
 				if verifyResp.Status == "success" && verifyResp.Data.Status == "success" {
 					// Record the purchase
@@ -311,13 +319,13 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 						VALUES ($1, $2, $3, $4, $5, $6)
 						ON CONFLICT (chapa_tx_ref) DO UPDATE SET status = 'success'
 					`, userID, recipeID, verifyResp.Data.Amount, "ETB", tryTxRef, "success")
-					
+
 					if err != nil {
 						fmt.Printf("Failed to record purchase: %v\n", err)
 					} else {
 						fmt.Printf("Purchase recorded for recipe %d, user %d\n", recipeID, userID)
 					}
-					
+
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{
 						"status":  "success",
@@ -327,7 +335,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// If no purchase found and Chapa verification failed, return pending
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
@@ -336,7 +344,7 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	if txRef == "" {
 		http.Error(w, "Transaction reference or recipe_id required", http.StatusBadRequest)
 		return
@@ -381,15 +389,18 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Sscanf(txRef, "tx-%d-%d", &recipeID, &timestamp)
 
 		// Use GraphQL Client to fetch recipe details (Satisfying "must use go graphql client")
+		hasuraURL := getEnv("HASURA_URL", "http://localhost:8080/v1/graphql")
+		hasuraAdminSecret := getEnv("HASURA_GRAPHQL_ADMIN_SECRET", "myhasurasecret")
+
 		httpClient := &http.Client{
 			Transport: &headerTransport{
 				Transport: http.DefaultTransport,
 				Headers: map[string]string{
-					"X-Hasura-Admin-Secret": "myhasurasecret",
+					"X-Hasura-Admin-Secret": hasuraAdminSecret,
 				},
 			},
 		}
-		gqlClient := graphql.NewClient("http://localhost:8080/v1/graphql", httpClient)
+		gqlClient := graphql.NewClient(hasuraURL, httpClient)
 
 		var query struct {
 			RecipesByPk struct {

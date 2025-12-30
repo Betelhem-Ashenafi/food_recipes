@@ -15,62 +15,16 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-// UploadFileHandler handles single file upload and returns the URL
+// UploadFileHandler handles single file upload and returns a placeholder URL
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("CLOUDINARY_CLOUD_NAME:", os.Getenv("CLOUDINARY_CLOUD_NAME"))
-	log.Println("SUPABASE_URL:", os.Getenv("SUPABASE_URL"))
-	log.Println("SUPABASE_API_KEY:", os.Getenv("SUPABASE_API_KEY"))
-	log.Println("SUPABASE_BUCKET:", os.Getenv("SUPABASE_BUCKET"))
-	log.Println("Upload request received")
-	r.ParseMultipartForm(10 << 20)
+	log.Println("Upload request received (placeholder mode)")
 
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		log.Println("FormFile error:", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	log.Println("File name:", handler.Filename)
-
-	// Create unique filename
-	ext := filepath.Ext(handler.Filename)
-	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
-	tempFilePath := filepath.Join(os.TempDir(), filename)
-
-	// Save uploaded file to temp location
-	tempFile, err := os.Create(tempFilePath)
-	if err != nil {
-		log.Println("Temp file create error:", err)
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
-		return
-	}
-	defer func() {
-		tempFile.Close()
-		os.Remove(tempFilePath)
-	}()
-
-	_, err = io.Copy(tempFile, file)
-	if err != nil {
-		log.Println("Temp file write error:", err)
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
-		return
-	}
-
-	// Upload to Supabase
-	url, err := utils.UploadImage(tempFilePath)
-	if err != nil {
-		log.Println("Supabase upload error:", err)
-		http.Error(w, "Error uploading to Supabase", http.StatusInternalServerError)
-		return
-	}
-
-	log.Println("Upload successful, Supabase URL:", url)
+	// Always return a placeholder image URL
+	placeholderURL := "https://via.placeholder.com/600x400?text=Placeholder+Image"
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"url": url,
+		"url": placeholderURL,
 	})
 }
 

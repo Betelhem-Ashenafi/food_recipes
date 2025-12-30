@@ -18,6 +18,9 @@ import (
 // UploadFileHandler handles single file upload and returns the URL
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("CLOUDINARY_CLOUD_NAME:", os.Getenv("CLOUDINARY_CLOUD_NAME"))
+	log.Println("SUPABASE_URL:", os.Getenv("SUPABASE_URL"))
+	log.Println("SUPABASE_API_KEY:", os.Getenv("SUPABASE_API_KEY"))
+	log.Println("SUPABASE_BUCKET:", os.Getenv("SUPABASE_BUCKET"))
 	log.Println("Upload request received")
 	r.ParseMultipartForm(10 << 20)
 

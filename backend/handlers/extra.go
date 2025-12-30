@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"foodrecipes/utils"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -33,16 +34,36 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// Create unique filename
 	ext := filepath.Ext(handler.Filename)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	tempFilePath := filepath.Join(os.TempDir(), filename)
 
-	// Upload to Cloudinary
-	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
+	// Save uploaded file to temp location
+	tempFile, err := os.Create(tempFilePath)
 	if err != nil {
-		log.Println("Cloudinary upload error:", err)
-		http.Error(w, "Error uploading to Cloudinary", http.StatusInternalServerError)
+		log.Println("Temp file create error:", err)
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFilePath)
+	}()
+
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		log.Println("Temp file write error:", err)
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
 		return
 	}
 
-	log.Println("Upload successful, Cloudinary URL:", url)
+	// Upload to Supabase
+	url, err := utils.UploadImage(tempFilePath)
+	if err != nil {
+		log.Println("Supabase upload error:", err)
+		http.Error(w, "Error uploading to Supabase", http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("Upload successful, Supabase URL:", url)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -256,14 +277,40 @@ func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	// Create unique filename
 	ext := filepath.Ext(handler.Filename)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	tempFilePath := filepath.Join(os.TempDir(), filename)
 
-	// Upload to Cloudinary
-	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
+	// Save uploaded file to temp location
+	tempFile, err := os.Create(tempFilePath)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-			Message: "Error uploading to Cloudinary",
-			Code:    "cloudinary_error",
+			Message: "Error saving file",
+			Code:    "tempfile_error",
+		})
+		return
+	}
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFilePath)
+	}()
+
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+			Message: "Error saving file",
+			Code:    "tempfile_write_error",
+		})
+		return
+	}
+
+	// Upload to Supabase
+	url, err := utils.UploadImage(tempFilePath)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
+			Message: "Error uploading to Supabase",
+			Code:    "supabase_error",
 		})
 		return
 	}

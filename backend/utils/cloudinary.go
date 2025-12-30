@@ -2,161 +2,63 @@ package utils
 
 import (
 	"bytes"
-	"context"
-	"crypto/sha1"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
-	"time"
 )
 
-// UploadToCloudinary uploads a file to Cloudinary using the REST API and returns the URL or error.
-// Supports file as: string (path), []byte, *os.File, *multipart.FileHeader, or any io.Reader.
-func UploadToCloudinary(ctx context.Context, file interface{}, filename string) (string, error) {
-	cloudName := os.Getenv("CLOUDINARY_CLOUD_NAME")
-	apiKey := os.Getenv("CLOUDINARY_API_KEY")
-	apiSecret := os.Getenv("CLOUDINARY_API_SECRET")
-	cloudURL := os.Getenv("CLOUDINARY_URL")
+// UploadImage uploads an image to Supabase Storage and returns the public URL
+func UploadImage(filePath string) (string, error) {
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_API_KEY")
+	supabaseBucket := os.Getenv("SUPABASE_BUCKET")
 
-	if cloudURL != "" {
-		// CLOUDINARY_URL format: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
-		u, err := url.Parse(cloudURL)
-		if err == nil {
-			if u.User != nil {
-				if k := u.User.Username(); k != "" {
-					apiKey = k
-				}
-				if s, ok := u.User.Password(); ok {
-					apiSecret = s
-				}
-			}
-			if h := u.Hostname(); h != "" {
-				cloudName = h
-			}
-		}
+	if supabaseURL == "" || supabaseKey == "" || supabaseBucket == "" {
+		return "", fmt.Errorf("Supabase environment variables not set")
 	}
 
-	if cloudName == "" || apiKey == "" || apiSecret == "" {
-		return "", fmt.Errorf("CLOUDINARY_CLOUD_NAME or API credentials not set")
-	}
-
-	var reader io.Reader
-	var closer io.Closer
-
-	switch v := file.(type) {
-	case nil:
-		return "", fmt.Errorf("file is nil")
-	case string:
-		f, err := os.Open(v)
-		if err != nil {
-			return "", err
-		}
-		reader = f
-		closer = f
-		if filename == "" {
-			filename = filepath.Base(v)
-		}
-	case []byte:
-		reader = bytes.NewReader(v)
-	case *os.File:
-		reader = v
-		closer = v
-		if filename == "" {
-			filename = filepath.Base(v.Name())
-		}
-	case *multipart.FileHeader:
-		f, err := v.Open()
-		if err != nil {
-			return "", err
-		}
-		reader = f
-		closer = f
-		if filename == "" {
-			filename = v.Filename
-		}
-	default:
-		if r, ok := v.(io.Reader); ok {
-			reader = r
-		} else {
-			return "", fmt.Errorf("unsupported file type %T", file)
-		}
-	}
-
-	if closer != nil {
-		defer closer.Close()
-	}
-
-	if filename == "" {
-		filename = fmt.Sprintf("upload_%d", time.Now().Unix())
-	}
-
-	// Prepare multipart form
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	fw, err := w.CreateFormFile("file", filename)
+	file, err := os.Open(filePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to open file: %v", err)
 	}
-	if _, err := io.Copy(fw, reader); err != nil {
-		return "", err
-	}
+	defer file.Close()
 
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	// signature: sha1(public_id=<public_id>&timestamp=<timestamp><api_secret>)
-	sigBase := fmt.Sprintf("public_id=%s&timestamp=%s", filename, timestamp)
-	h := sha1.New()
-	h.Write([]byte(sigBase + apiSecret))
-	signature := hex.EncodeToString(h.Sum(nil))
-
-	// add required fields
-	_ = w.WriteField("api_key", apiKey)
-	_ = w.WriteField("timestamp", timestamp)
-	_ = w.WriteField("signature", signature)
-	_ = w.WriteField("public_id", filename)
-
-	if err := w.Close(); err != nil {
-		return "", err
-	}
-
-	endpoint := fmt.Sprintf("https://api.cloudinary.com/v1_1/%s/auto/upload", cloudName)
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, &b)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create form file: %v", err)
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-
-	resp, err := http.DefaultClient.Do(req)
+	_, err = io.Copy(part, file)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to copy file: %v", err)
+	}
+	writer.Close()
+
+	uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, supabaseBucket, filepath.Base(filePath))
+	req, err := http.NewRequest("POST", uploadURL, &body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+supabaseKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload to Supabase: %v", err)
 	}
 	defer resp.Body.Close()
 
-	var resBody bytes.Buffer
-	if _, err := io.Copy(&resBody, resp.Body); err != nil {
-		return "", err
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Supabase upload failed: %s", string(respBody))
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("cloudinary upload failed: status %d: %s", resp.StatusCode, resBody.String())
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(resBody.Bytes(), &parsed); err != nil {
-		return "", err
-	}
-	if s, ok := parsed["secure_url"].(string); ok && s != "" {
-		return s, nil
-	}
-	if s, ok := parsed["url"].(string); ok && s != "" {
-		return s, nil
-	}
-	return "", fmt.Errorf("no url in cloudinary response")
+	// Public URL format for Supabase Storage
+	publicURL := fmt.Sprintf("%s/storage/v1/object/public/%s/%s", supabaseURL, supabaseBucket, filepath.Base(filePath))
+	return publicURL, nil
 }

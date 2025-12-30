@@ -4,17 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"foodrecipes/utils"
+	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"log"
 
 	"github.com/golang-jwt/jwt"
 )
 
 // UploadFileHandler handles single file upload and returns the URL
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("CLOUDINARY_CLOUD_NAME:", os.Getenv("CLOUDINARY_CLOUD_NAME"))
 	log.Println("Upload request received")
 	r.ParseMultipartForm(10 << 20)
 

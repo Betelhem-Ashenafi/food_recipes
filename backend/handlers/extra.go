@@ -3,9 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	"foodrecipes/utils"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,38 +28,16 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	ext := filepath.Ext(handler.Filename)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 
-	// Ensure uploads directory exists
-	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
-		os.Mkdir("uploads", 0755)
-	}
-
-	// Create destination file
-	dst, err := os.Create(filepath.Join("uploads", filename))
+	// Upload to Cloudinary
+	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
 	if err != nil {
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		http.Error(w, "Error uploading to Cloudinary", http.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
-
-	// Copy uploaded file to destination
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
-		return
-	}
-
-	// Construct URL
-	// Use API_URL environment variable, fallback to localhost for local dev
-	apiURL := os.Getenv("API_URL")
-	if apiURL == "" {
-		apiURL = "http://localhost:8081"
-	}
-	// Remove trailing slash if present
-	apiURL = strings.TrimSuffix(apiURL, "/")
-	fileURL := fmt.Sprintf("%s/uploads/%s", apiURL, filename)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"url": fileURL,
+		"url": url,
 	})
 }
 
@@ -239,7 +216,7 @@ type HasuraUploadErrorResponse struct {
 // HasuraUploadHandler handles file upload via Hasura Action
 func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// For Hasura actions, we can accept multipart form or JSON
 	// This implementation accepts multipart form (same as REST endpoint)
 	r.ParseMultipartForm(10 << 20) // 10MB limit
@@ -271,45 +248,19 @@ func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	ext := filepath.Ext(handler.Filename)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 
-	// Ensure uploads directory exists
-	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
-		os.Mkdir("uploads", 0755)
-	}
-
-	// Create destination file
-	dst, err := os.Create(filepath.Join("uploads", filename))
+	// Upload to Cloudinary
+	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-			Message: "Error saving file",
-			Code:    "save_error",
+			Message: "Error uploading to Cloudinary",
+			Code:    "cloudinary_error",
 		})
 		return
 	}
-	defer dst.Close()
-
-	// Copy uploaded file to destination
-	if _, err := io.Copy(dst, file); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-			Message: "Error saving file",
-			Code:    "save_error",
-		})
-		return
-	}
-
-	// Construct URL
-	// Use API_URL environment variable, fallback to localhost for local dev
-	apiURL := os.Getenv("API_URL")
-	if apiURL == "" {
-		apiURL = "http://localhost:8081"
-	}
-	// Remove trailing slash if present
-	apiURL = strings.TrimSuffix(apiURL, "/")
-	fileURL := fmt.Sprintf("%s/uploads/%s", apiURL, filename)
 
 	// Return Hasura action response format
 	json.NewEncoder(w).Encode(HasuraUploadResponse{
-		URL: fileURL,
+		URL: url,
 	})
 }

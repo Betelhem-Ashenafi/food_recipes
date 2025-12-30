@@ -8,21 +8,25 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"log"
 
 	"github.com/golang-jwt/jwt"
 )
 
 // UploadFileHandler handles single file upload and returns the URL
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// Limit upload size to 10MB
+	log.Println("Upload request received")
 	r.ParseMultipartForm(10 << 20)
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		log.Println("FormFile error:", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+
+	log.Println("File name:", handler.Filename)
 
 	// Create unique filename
 	ext := filepath.Ext(handler.Filename)
@@ -31,9 +35,12 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// Upload to Cloudinary
 	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
 	if err != nil {
+		log.Println("Cloudinary upload error:", err)
 		http.Error(w, "Error uploading to Cloudinary", http.StatusInternalServerError)
 		return
 	}
+
+	log.Println("Upload successful, Cloudinary URL:", url)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{

@@ -178,7 +178,7 @@
                 ref="imageInput"
               />
               
-              <div @click="$refs.imageInput.click()" class="cursor-pointer">
+              <div @click="imageInput?.click()" class="cursor-pointer">
                 <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                   <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
@@ -249,12 +249,15 @@
                 placeholder="Qty"
                 class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <input 
-                v-model="ingredient.unit"
-                type="text"
-                placeholder="Unit"
-                class="w-32 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
+              <select
+                v-model="ingredient.unit_id"
+                class="w-32 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="" disabled>Select</option>
+                <option v-for="unit in units" :key="unit.id" :value="unit.id">
+                  {{ unit.name }}
+                </option>
+              </select>
               <button 
                 type="button"
                 @click="removeIngredient(index)"
@@ -340,12 +343,50 @@
 import { ref } from 'vue';
 import { Form, Field, ErrorMessage } from 'vee-validate';
 import * as yup from 'yup';
+import { useApolloClient } from '@vue/apollo-composable';
+import gql from 'graphql-tag';
 
 const router = useRouter();
 const createError = ref('');
 const imageInput = ref(null);
-const uploadedImages = ref([]); // Array of {url: string, isFeatured: boolean}
+const uploadedImages = ref([]); // start empty – real uploads will fill this
 const uploadingImage = ref(false);
+const { client } = useApolloClient();
+
+const CATEGORIES_QUERY = gql`
+  query GetCategories {
+    categories(order_by: { name: asc }) {
+      id
+      name
+      image_url
+    }
+  }
+`;
+
+const UNITS_QUERY = gql`
+  query GetUnits {
+    units(order_by: { id: asc }) {
+      id
+      name
+    }
+  }
+`;
+
+const CREATE_RECIPE_MUTATION = gql`
+  mutation CreateRecipe($object: recipes_insert_input!) {
+    insert_recipes_one(object: $object) {
+      id
+    }
+  }
+`;
+
+const UPLOAD_FILE_MUTATION = gql`
+  mutation UploadFile($file: FileUploadInput!) {
+    uploadFile(file: $file) {
+      url
+    }
+  }
+`;
 
 // Redirect if not logged in
 const token = useCookie('auth_token');
@@ -354,51 +395,67 @@ onMounted(() => {
     router.push('/login');
   }
   fetchCategories();
+  fetchUnits();
 });
 
 // Fetch Categories
 const categories = ref([]);
 const selectedCategoryId = ref(null);
+const units = ref([]);
 const fetchCategories = async () => {
   try {
-    const config = useRuntimeConfig();
-    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
-    const data = await $fetch(`${apiUrl}/categories`);
-    categories.value = data || [];
+    const result = await client.query({
+      query: CATEGORIES_QUERY,
+      fetchPolicy: 'network-only'
+    });
+    categories.value = result?.data?.categories || [];
   } catch (err) {
     console.error('Error fetching categories:', err);
+  }
+};
+
+const fetchUnits = async () => {
+  try {
+    const result = await client.query({
+      query: UNITS_QUERY,
+      fetchPolicy: 'network-only'
+    });
+    units.value = result?.data?.units || [];
+  } catch (err) {
+    console.error('Error fetching units:', err);
+    units.value = [];
   }
 };
 
 // Get Category Emoji (fallback when image is not available)
 const getCategoryEmoji = (name) => {
   const emojiMap = {
-    'Italian': '🍝',
-    'Mexican': '🌮',
-    'Asian': '🍜',
-    'Dessert': '🍰',
-    'Breakfast': '🥞',
-    'Lunch': '🥗',
-    'Dinner': '🍽️',
-    'Vegetarian': '🥬',
-    'Vegan': '🌱',
-    'Seafood': '🐟',
-    'Pasta': '🍝',
-    'Pizza': '🍕',
-    'Salad': '🥗',
-    'Soup': '🍲',
-    'Beverage': '🥤',
+    Italian: '🍝',
+    Mexican: '🌮',
+    Asian: '🍜',
+    Dessert: '🍰',
+    Breakfast: '🥞',
+    Lunch: '🥗',
+    Dinner: '🍽️',
+    Vegetarian: '🥬',
+    Vegan: '🌱',
+    Seafood: '🐟',
+    Pasta: '🍝',
+    Pizza: '🍕',
+    Salad: '🥗',
+    Soup: '🍲',
+    Beverage: '🥤'
   };
   return emojiMap[name] || '🍳';
 };
 
 // Dynamic Ingredients
 const ingredients = ref([
-  { name: '', quantity: '', unit: '' }
+  { name: '', quantity: '', unit_id: '' }
 ]);
 
 const addIngredient = () => {
-  ingredients.value.push({ name: '', quantity: '', unit: '' });
+  ingredients.value.push({ name: '', quantity: '', unit_id: '' });
 };
 
 const removeIngredient = (index) => {
@@ -427,7 +484,6 @@ const schema = yup.object({
   title: yup.string().required().min(3).label('Title'),
   description: yup.string().required().min(10).label('Description'),
   category_id: yup.mixed().test('required', 'Category is required', function(value) {
-    // Check both the form value and the selectedCategoryId
     const catId = value || selectedCategoryId.value;
     return catId !== null && catId !== undefined && catId !== '' && catId !== 0;
   }).label('Category'),
@@ -435,7 +491,7 @@ const schema = yup.object({
   price: yup.number().min(0).label('Price'),
 });
 
-// Handle Multiple Image Upload
+// Handle Multiple Image Upload – real upload via GraphQL mutation
 const handleMultipleImageUpload = async (event) => {
   const files = Array.from(event.target.files);
   if (files.length === 0) return;
@@ -444,35 +500,40 @@ const handleMultipleImageUpload = async (event) => {
   createError.value = '';
 
   try {
-    // Upload all files
     const uploadPromises = files.map(async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const config = useRuntimeConfig();
-      const apiUrl = config.public.apiUrl || 'http://localhost:8081';
-      const response = await fetch(`${apiUrl}/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token.value}`
-        },
-        body: formData
+      // Convert file to base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          // Remove the data:image/...;base64, prefix
+          const base64String = reader.result.split(',')[1];
+          resolve(base64String);
+        };
+        reader.onerror = (error) => reject(error);
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to upload ${file.name}`);
-      }
+      // Call the GraphQL uploadFile mutation
+      const result = await client.mutate({
+        mutation: UPLOAD_FILE_MUTATION,
+        variables: {
+          file: {
+            filename: file.name,
+            mimetype: file.type,
+            content: base64
+          }
+        }
+      });
 
-      const data = await response.json();
-      return { url: data.url, isFeatured: false };
+      const url = result.data?.uploadFile?.url;
+      if (!url) throw new Error(`No URL returned for ${file.name}`);
+      return { url, isFeatured: false };
     });
 
     const uploaded = await Promise.all(uploadPromises);
-    
-    // Add to uploadedImages array
     uploadedImages.value.push(...uploaded);
-    
-    // If this is the first image, set it as featured automatically
+
+    // Auto-feature the first image
     if (uploadedImages.value.length === uploaded.length) {
       uploadedImages.value[0].isFeatured = true;
     }
@@ -481,7 +542,7 @@ const handleMultipleImageUpload = async (event) => {
     console.error(err);
   } finally {
     uploadingImage.value = false;
-    // Reset input
+    // Reset the file input so the same file can be selected again
     if (event.target) {
       event.target.value = '';
     }
@@ -490,16 +551,13 @@ const handleMultipleImageUpload = async (event) => {
 
 // Set Featured Image
 const setFeaturedImage = (index) => {
-  // Unset all featured
   uploadedImages.value.forEach(img => img.isFeatured = false);
-  // Set selected as featured
   uploadedImages.value[index].isFeatured = true;
 };
 
 // Remove Image
 const removeImage = (index) => {
   const removed = uploadedImages.value.splice(index, 1)[0];
-  // If removed was featured and there are other images, set first as featured
   if (removed.isFeatured && uploadedImages.value.length > 0) {
     uploadedImages.value[0].isFeatured = true;
   }
@@ -509,35 +567,35 @@ const removeImage = (index) => {
 const handleCreateRecipe = async (values) => {
   createError.value = '';
 
-  // Use selectedCategoryId if category_id from form is missing
   const categoryId = values.category_id || selectedCategoryId.value;
-  
   if (!categoryId || categoryId === 0) {
     createError.value = 'Please select a category';
     return;
   }
 
-  // Validate ingredients
   const validIngredients = ingredients.value.filter(ing => ing.name.trim() !== '');
   if (validIngredients.length === 0) {
     createError.value = 'Please add at least one ingredient';
     return;
   }
 
-  // Validate steps
+  const hasMissingUnit = validIngredients.some((ing) => !ing.unit_id);
+  if (hasMissingUnit) {
+    createError.value = 'Please select a unit for every ingredient';
+    return;
+  }
+
   const validSteps = steps.value.filter(step => step.instruction.trim() !== '');
   if (validSteps.length === 0) {
     createError.value = 'Please add at least one preparation step';
     return;
   }
 
-  // Validate images
   if (uploadedImages.value.length === 0) {
     createError.value = 'Please upload at least one image';
     return;
   }
 
-  // Find featured image
   const featuredImage = uploadedImages.value.find(img => img.isFeatured);
   if (!featuredImage) {
     createError.value = 'Please select a featured image';
@@ -550,53 +608,50 @@ const handleCreateRecipe = async (values) => {
     description: values.description,
     preparation_time: parseInt(values.preparation_time),
     price: parseFloat(values.price) || 0,
-    thumbnail_url: featuredImage.url, // Use featured image as thumbnail
-    ingredients: validIngredients,
-    steps: validSteps,
-    images: uploadedImages.value.map(img => img.url) // All images for later upload
+    recipe_ingredients: {
+      data: validIngredients.map((ing) => ({
+        name: ing.name,
+        quantity: ing.quantity,
+        unit_id: parseInt(ing.unit_id)
+      }))
+    },
+    recipe_steps: {
+      data: validSteps.map((step, index) => ({
+        step_number: index + 1,
+        instruction: step.instruction
+      }))
+    },
+    recipe_images: {
+      data: uploadedImages.value.map((img) => ({
+        url: img.url,
+        is_featured: img.isFeatured
+      }))
+    }
   };
 
   try {
     console.log('[CREATE] Submitting recipe:', recipeData);
     console.log('[CREATE] Token present:', !!token.value);
-    
-    const config = useRuntimeConfig();
-    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
-    const response = await fetch(`${apiUrl}/recipes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token.value}`
-      },
-      body: JSON.stringify(recipeData)
+
+    const result = await client.mutate({
+      mutation: CREATE_RECIPE_MUTATION,
+      variables: { object: recipeData }
     });
 
-    console.log('[CREATE] Response status:', response.status);
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('[CREATE] Error response:', errorData);
-      throw new Error(errorData || 'Failed to create recipe');
+    if (result?.errors && result.errors.length > 0) {
+      throw new Error(result.errors[0]?.message || 'Failed to create recipe');
     }
 
-    const data = await response.json();
-    console.log('[CREATE] Recipe created successfully:', data);
-    
-    if (!data || !data.id) {
+    const createdId = result?.data?.insert_recipes_one?.id;
+    if (!createdId) {
       throw new Error('Recipe created but no ID returned');
     }
-    
-    // Show success message
+
     alert('Recipe created successfully! Redirecting to your recipe...');
-    
-    // Success - redirect to recipe detail page
-    await router.push(`/recipes/${data.id}`);
+    await router.push(`/recipes/${createdId}`);
   } catch (err) {
     createError.value = err.message || 'An error occurred while creating the recipe';
     console.error('[CREATE] Exception:', err);
-    console.error('[CREATE] Full error:', err);
-    
-    // Don't navigate on error - stay on create page to show error
     alert('Failed to create recipe: ' + err.message);
   }
 };

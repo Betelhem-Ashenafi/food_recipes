@@ -8,6 +8,11 @@ type Category struct {
 	ImageURL string `db:"image_url" json:"image_url"`
 }
 
+type Unit struct {
+	ID   int    `db:"id" json:"id"`
+	Name string `db:"name" json:"name"`
+}
+
 type Recipe struct {
 	ID              int           `db:"id" json:"id"`
 	UserID          int           `db:"user_id" json:"user_id"`
@@ -35,7 +40,8 @@ type RecipeIngredient struct {
 	RecipeID int    `db:"recipe_id" json:"recipe_id"`
 	Name     string `db:"name" json:"name"`
 	Quantity string `db:"quantity" json:"quantity"`
-	Unit     string `db:"unit" json:"unit"`
+	UnitID   int    `db:"unit_id" json:"unit_id"`
+	Unit     *Unit  `json:"unit,omitempty"`
 }
 
 type RecipeStep struct {

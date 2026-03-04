@@ -1,15 +1,44 @@
 package utils
 
 import (
+	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt"
 )
 
-var jwtSecret = []byte("your-secret-key")
+func getJWTSecret() ([]byte, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		// Fallback to Hasura-style JSON secret if present.
+		hasuraSecret := os.Getenv("HASURA_GRAPHQL_JWT_SECRET")
+		if hasuraSecret == "" {
+			return nil, errors.New("JWT_SECRET is not set")
+		}
+		trimmed := strings.TrimSpace(hasuraSecret)
+		if strings.HasPrefix(trimmed, "{") {
+			var payload struct {
+				Key string `json:"key"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &payload); err == nil && payload.Key != "" {
+				return []byte(payload.Key), nil
+			}
+		}
+		// Use raw value as a last resort.
+		return []byte(hasuraSecret), nil
+	}
+	return []byte(secret), nil
+}
+
+// GetJWTSecret exposes the resolved JWT secret for other packages.
+func GetJWTSecret() ([]byte, error) {
+	return getJWTSecret()
+}
 
 // getTokenExpiration returns the token expiration duration
 // Default: 7 days (168 hours)
@@ -30,6 +59,11 @@ func getTokenExpiration() time.Duration {
 
 // GenerateJWT creates a JWT token for a user
 func GenerateJWT(userID int, email string, name string) (string, error) {
+	jwtSecret, err := getJWTSecret()
+	if err != nil {
+		return "", err
+	}
+
 	expiration := getTokenExpiration()
 	now := time.Now()
 	expirationTime := now.Add(expiration)

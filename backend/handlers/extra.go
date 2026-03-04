@@ -1,206 +1,30 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"foodrecipes/utils"
 	"net/http"
-	"path/filepath"
+	"os"
 	"strings"
 	"time"
+
+	"foodrecipes/utils"
 
 	"github.com/golang-jwt/jwt"
 )
 
-// UploadFileHandler handles single file upload and returns the URL
-func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// Limit upload size to 10MB
-	r.ParseMultipartForm(10 << 20)
-
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "Error retrieving file", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	// Create unique filename
-	ext := filepath.Ext(handler.Filename)
-	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
-
-	// Upload to Cloudinary
-	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
-	if err != nil {
-		http.Error(w, "Error uploading to Cloudinary", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
-		"url": url,
-	})
+type HasuraUploadInput struct {
+	Filename string `json:"filename"`
+	Mimetype string `json:"mimetype"`
+	Content  string `json:"content"` // base64
 }
 
-// GetRecipeImagesHandler - GET /recipes/{id}/images
-// This endpoint is public (no auth required) so anyone can view recipe images
-func GetRecipeImagesHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract recipe ID from URL
-	idStr := strings.TrimPrefix(r.URL.Path, "/recipes/")
-	idStr = strings.TrimSuffix(idStr, "/images")
-	var recipeID int
-	_, err := fmt.Sscanf(idStr, "%d", &recipeID)
-	if err != nil {
-		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
-		return
-	}
-
-	var images []struct {
-		ID         int    `db:"id" json:"id"`
-		RecipeID   int    `db:"recipe_id" json:"recipe_id"`
-		URL        string `db:"url" json:"url"`
-		IsFeatured bool   `db:"is_featured" json:"is_featured"`
-	}
-	err = DB.Select(&images, "SELECT id, recipe_id, url, is_featured FROM recipe_images WHERE recipe_id=$1 ORDER BY is_featured DESC, id ASC", recipeID)
-	if err != nil {
-		http.Error(w, "Failed to fetch images", http.StatusInternalServerError)
-		return
-	}
-
-	// If no images in recipe_images table, return empty array (not error)
-	// Frontend will fallback to thumbnail_url
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(images)
-}
-
-// UploadRecipeImagesHandler allows uploading multiple image URLs for a recipe
-func UploadRecipeImagesHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract recipe ID from URL
-	idStr := strings.TrimPrefix(r.URL.Path, "/recipes/")
-	idStr = strings.TrimSuffix(idStr, "/images")
-	var recipeID int
-	_, err := fmt.Sscanf(idStr, "%d", &recipeID)
-	if err != nil {
-		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
-		return
-	}
-
-	// Extract user ID from token
-	authHeader := r.Header.Get("Authorization")
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, _ := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte("your-secret-key"), nil
-	})
-	userID := int(token.Claims.(jwt.MapClaims)["user_id"].(float64))
-
-	// Check recipe ownership
-	var ownerID int
-	err = DB.Get(&ownerID, "SELECT user_id FROM recipes WHERE id=$1", recipeID)
-	if err != nil {
-		http.Error(w, "Recipe not found", http.StatusNotFound)
-		return
-	}
-
-	if ownerID != userID {
-		http.Error(w, "Forbidden: not recipe owner", http.StatusForbidden)
-		return
-	}
-
-	// Parse image URLs from request body
-	var req struct {
-		Images []string `json:"images"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Insert images
-	for _, url := range req.Images {
-		_, err := DB.Exec("INSERT INTO recipe_images (recipe_id, url, is_featured) VALUES ($1, $2, false)", recipeID, url)
-		if err != nil {
-			http.Error(w, "Failed to save image", http.StatusInternalServerError)
-			return
-		}
-	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Images uploaded successfully"})
-}
-
-// FeatureRecipeImageHandler sets a featured image for a recipe
-func FeatureRecipeImageHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract recipe and image ID from URL
-	path := strings.TrimPrefix(r.URL.Path, "/recipes/")
-	parts := strings.Split(path, "/images/")
-	if len(parts) != 2 {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-	var recipeID, imageID int
-	_, err := fmt.Sscanf(parts[0], "%d", &recipeID)
-	if err != nil {
-		http.Error(w, "Invalid recipe ID", http.StatusBadRequest)
-		return
-	}
-	_, err = fmt.Sscanf(parts[1], "%d/feature", &imageID)
-	if err != nil {
-		// Try without /feature
-		_, err = fmt.Sscanf(parts[1], "%d", &imageID)
-		if err != nil {
-			http.Error(w, "Invalid image ID", http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Extract user ID from token
-	authHeader := r.Header.Get("Authorization")
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, _ := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte("your-secret-key"), nil
-	})
-	userID := int(token.Claims.(jwt.MapClaims)["user_id"].(float64))
-
-	// Check recipe ownership
-	var ownerID int
-	err = DB.Get(&ownerID, "SELECT user_id FROM recipes WHERE id=$1", recipeID)
-	if err != nil {
-		http.Error(w, "Recipe not found", http.StatusNotFound)
-		return
-	}
-	if ownerID != userID {
-		http.Error(w, "Forbidden: not recipe owner", http.StatusForbidden)
-		return
-	}
-
-	// Set all images to not featured
-	_, err = DB.Exec("UPDATE recipe_images SET is_featured=false WHERE recipe_id=$1", recipeID)
-	if err != nil {
-		http.Error(w, "Failed to update images", http.StatusInternalServerError)
-		return
-	}
-	// Set selected image to featured
-	_, err = DB.Exec("UPDATE recipe_images SET is_featured=true WHERE id=$1 AND recipe_id=$2", imageID, recipeID)
-	if err != nil {
-		http.Error(w, "Failed to set featured image", http.StatusInternalServerError)
-		return
-	}
-
-	// Optionally update recipe table with featured image id
-	_, err = DB.Exec("UPDATE recipes SET thumbnail_url=(SELECT url FROM recipe_images WHERE id=$1) WHERE id=$2", imageID, recipeID)
-	if err != nil {
-		http.Error(w, "Failed to update recipe thumbnail", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Featured image set successfully"})
-}
-
-// Hasura Action structures for file upload
 type HasuraUploadPayload struct {
-	Action struct {
-		Name string `json:"name"`
-	} `json:"action"`
 	Input struct {
-		Arg struct {
-			File string `json:"file"` // Base64 encoded file or URL
-		} `json:"arg"`
+		Arg  *HasuraUploadInput `json:"arg"`
+		File *HasuraUploadInput `json:"file"`
 	} `json:"input"`
 }
 
@@ -208,59 +32,119 @@ type HasuraUploadResponse struct {
 	URL string `json:"url"`
 }
 
-type HasuraUploadErrorResponse struct {
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
-}
-
-// HasuraUploadHandler handles file upload via Hasura Action
+// HasuraErrorResponse is already defined in auth.go; no need to redefine.
 func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// For Hasura actions, we can accept multipart form or JSON
-	// This implementation accepts multipart form (same as REST endpoint)
-	r.ParseMultipartForm(10 << 20) // 10MB limit
-
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		// Try to parse as Hasura action payload
-		var payload HasuraUploadPayload
-		if jsonErr := json.NewDecoder(r.Body).Decode(&payload); jsonErr != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-				Message: "Error retrieving file",
-				Code:    "file_required",
-			})
-			return
-		}
-		// If it's a Hasura action with base64, decode it
-		// For now, return error - implement base64 decoding if needed
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-			Message: "File upload via Hasura action requires multipart form",
-			Code:    "invalid_format",
-		})
+	// Validate JWT token
+	tokenStr := extractTokenFromHeader(r)
+	if tokenStr == "" {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid Authorization header", "invalid_token")
 		return
 	}
-	defer file.Close()
+	userID, err := validateAndExtractUserID(tokenStr)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token", "invalid_token")
+		return
+	}
+	_ = userID // optional logging
 
-	// Create unique filename
-	ext := filepath.Ext(handler.Filename)
+	// Parse JSON body
+	var payload HasuraUploadPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON body", "invalid_json")
+		return
+	}
+	var input *HasuraUploadInput
+	if payload.Input.Arg != nil {
+		input = payload.Input.Arg
+	} else if payload.Input.File != nil {
+		input = payload.Input.File
+	}
+	if input == nil || input.Filename == "" || input.Mimetype == "" || input.Content == "" {
+		respondWithError(w, http.StatusBadRequest, "Missing upload input fields", "invalid_input")
+		return
+	}
+
+	// Decode base64 content
+	decoded, err := base64.StdEncoding.DecodeString(input.Content)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid base64 content", "invalid_base64")
+		return
+	}
+
+	// Create a unique filename (preserve extension)
+	ext := ""
+	if dot := strings.LastIndex(input.Filename, "."); dot != -1 {
+		ext = input.Filename[dot:]
+	}
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 
 	// Upload to Cloudinary
-	url, err := utils.UploadToCloudinary(r.Context(), file, filename)
+	url, err := utils.UploadToCloudinary(r.Context(), bytes.NewReader(decoded), filename)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(HasuraUploadErrorResponse{
-			Message: "Error uploading to Cloudinary",
-			Code:    "cloudinary_error",
-		})
+		respondWithError(w, http.StatusInternalServerError, "Failed to upload image: "+err.Error(), "cloudinary_error")
 		return
 	}
 
-	// Return Hasura action response format
-	json.NewEncoder(w).Encode(HasuraUploadResponse{
-		URL: url,
+	// Return success
+	json.NewEncoder(w).Encode(HasuraUploadResponse{URL: url})
+}
+
+// Helper functions (you may already have these in extra.go or auth.go)
+func extractTokenFromHeader(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+	return parts[1]
+}
+
+func validateAndExtractUserID(tokenStr string) (int, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return 0, fmt.Errorf("JWT_SECRET not set")
+	}
+
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+
+	if err != nil || !token.Valid {
+		return 0, fmt.Errorf("invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, fmt.Errorf("invalid claims")
+	}
+
+	var userID float64
+	if uid, ok := claims["user_id"]; ok {
+		userID, _ = uid.(float64)
+	} else if hasuraClaims, ok := claims["https://hasura.io/jwt/claims"].(map[string]interface{}); ok {
+		if uid, ok := hasuraClaims["x-hasura-user-id"]; ok {
+			userID, _ = uid.(float64)
+		}
+	}
+
+	if userID == 0 {
+		return 0, fmt.Errorf("user ID not found in token")
+	}
+	return int(userID), nil
+}
+
+func respondWithError(w http.ResponseWriter, status int, message, code string) {
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(HasuraErrorResponse{
+		Message: message,
+		Code:    code,
 	})
 }

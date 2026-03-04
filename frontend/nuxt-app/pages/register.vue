@@ -145,9 +145,13 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue';
 import { Form, Field, ErrorMessage } from 'vee-validate';
 import * as yup from 'yup';
+import { useMutation } from '@vue/apollo-composable';
 import { gql } from '@apollo/client/core';
+import { useRouter } from 'vue-router';
+import { useCookie } from '#app';
 
 const router = useRouter();
 const registerError = ref('');
@@ -156,15 +160,11 @@ const showPassword = ref(false);
 // Redirect if already logged in
 onMounted(() => {
   const token = useCookie('auth_token');
-  if (token.value) {
-    router.push('/home');
-  }
+  if (token.value) router.push('/home');
 });
 
-// Define layout as 'blank' to hide the default navbar
-definePageMeta({
-  layout: 'blank'
-});
+// Use blank layout (no navbar)
+definePageMeta({ layout: 'blank' });
 
 // Validation schema
 const schema = yup.object({
@@ -173,45 +173,38 @@ const schema = yup.object({
   password: yup.string().required().min(6).label('Password'),
 });
 
-// Handle form submit (REAL backend integration)
-const handleRegister = async (values) => {
-  registerError.value = '';
-  
-  try {
-    // Call REAL backend signup endpoint that inserts into REAL database
-    const config = useRuntimeConfig();
-    const apiUrl = config.public.apiUrl || 'http://localhost:8081';
-    const data = await $fetch(`${apiUrl}/signup`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name: values.full_name,
-        email: values.email,
-        password: values.password
-      })
-    });
-
-    if (data?.error) {
-      registerError.value = data.error;
-      return;
-    }
-
-    console.log('Signup successful - user created in database:', data);
-    
-    // Success - redirect to login
-    router.push('/login');
-    
-  } catch (err) {
-    console.error('Signup error:', err);
-    if (err.data?.error) {
-      registerError.value = err.data.error;
-    } else if (err.statusCode === 409) {
-      registerError.value = 'Email already registered in database';
-    } else {
-      registerError.value = 'Registration failed - please try again';
+// GraphQL signup mutation (should match your backend GraphQL schema/action)
+const SIGNUP_MUTATION = gql`
+  mutation Signup($name: String!, $email: String!, $password: String!) {
+    signup(name: $name, email: $email, password: $password) {
+      id
+      name
+      email
     }
   }
+`;
+
+// Apollo mutation hook
+const { mutate: signup, onDone, onError } = useMutation(SIGNUP_MUTATION);
+
+// Form submission
+const handleRegister = (values) => {
+  registerError.value = '';
+  signup({
+    name: values.full_name,
+    email: values.email,
+    password: values.password
+  });
 };
+
+// On successful signup
+onDone((result) => {
+  // Optionally, you can auto-login here, or just redirect to login
+  router.push('/login');
+});
+
+// On error
+onError((err) => {
+  registerError.value = err.graphQLErrors?.[0]?.message || 'Registration failed';
+});
 </script>

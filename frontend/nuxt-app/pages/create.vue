@@ -393,37 +393,26 @@ const token = useCookie('auth_token');
 onMounted(() => {
   if (!token.value) {
     router.push('/login');
+    return;
   }
-  fetchCategories();
-  fetchUnits();
+  fetchOptions(CATEGORIES_QUERY, 'categories', categories);
+  fetchOptions(UNITS_QUERY, 'units', units);
 });
 
 // Fetch Categories
 const categories = ref([]);
 const selectedCategoryId = ref(null);
 const units = ref([]);
-const fetchCategories = async () => {
+const fetchOptions = async (query, dataKey, targetRef) => {
   try {
     const result = await client.query({
-      query: CATEGORIES_QUERY,
+      query,
       fetchPolicy: 'network-only'
     });
-    categories.value = result?.data?.categories || [];
+    targetRef.value = result?.data?.[dataKey] || [];
   } catch (err) {
-    console.error('Error fetching categories:', err);
-  }
-};
-
-const fetchUnits = async () => {
-  try {
-    const result = await client.query({
-      query: UNITS_QUERY,
-      fetchPolicy: 'network-only'
-    });
-    units.value = result?.data?.units || [];
-  } catch (err) {
-    console.error('Error fetching units:', err);
-    units.value = [];
+    console.error(`Error fetching ${dataKey}:`, err);
+    targetRef.value = [];
   }
 };
 
@@ -453,30 +442,38 @@ const getCategoryEmoji = (name) => {
 const ingredients = ref([
   { name: '', quantity: '', unit_id: '' }
 ]);
+const createIngredient = () => ({ name: '', quantity: '', unit_id: '' });
+const createStep = () => ({ instruction: '' });
+
+const addItem = (listRef, factory) => {
+  listRef.value.push(factory());
+};
+
+const removeItem = (listRef, index) => {
+  if (listRef.value.length > 1) {
+    listRef.value.splice(index, 1);
+  }
+};
 
 const addIngredient = () => {
-  ingredients.value.push({ name: '', quantity: '', unit_id: '' });
+  addItem(ingredients, createIngredient);
 };
 
 const removeIngredient = (index) => {
-  if (ingredients.value.length > 1) {
-    ingredients.value.splice(index, 1);
-  }
+  removeItem(ingredients, index);
 };
 
 // Dynamic Steps
 const steps = ref([
-  { instruction: '', image_url: '' }
+  { instruction: '' }
 ]);
 
 const addStep = () => {
-  steps.value.push({ instruction: '', image_url: '' });
+  addItem(steps, createStep);
 };
 
 const removeStep = (index) => {
-  if (steps.value.length > 1) {
-    steps.value.splice(index, 1);
-  }
+  removeItem(steps, index);
 };
 
 // Validation Schema
@@ -492,8 +489,15 @@ const schema = yup.object({
 });
 
 // Handle Multiple Image Upload – real upload via GraphQL mutation
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = () => resolve(reader.result?.split(',')[1] || '');
+  reader.onerror = reject;
+});
+
 const handleMultipleImageUpload = async (event) => {
-  const files = Array.from(event.target.files);
+  const files = Array.from(event.target?.files || []);
   if (files.length === 0) return;
 
   uploadingImage.value = true;
@@ -501,19 +505,8 @@ const handleMultipleImageUpload = async (event) => {
 
   try {
     const uploadPromises = files.map(async (file) => {
-      // Convert file to base64
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => {
-          // Remove the data:image/...;base64, prefix
-          const base64String = reader.result.split(',')[1];
-          resolve(base64String);
-        };
-        reader.onerror = (error) => reject(error);
-      });
+      const base64 = await fileToBase64(file);
 
-      // Call the GraphQL uploadFile mutation
       const result = await client.mutate({
         mutation: UPLOAD_FILE_MUTATION,
         variables: {
@@ -533,7 +526,6 @@ const handleMultipleImageUpload = async (event) => {
     const uploaded = await Promise.all(uploadPromises);
     uploadedImages.value.push(...uploaded);
 
-    // Auto-feature the first image
     if (uploadedImages.value.length === uploaded.length) {
       uploadedImages.value[0].isFeatured = true;
     }
@@ -542,8 +534,7 @@ const handleMultipleImageUpload = async (event) => {
     console.error(err);
   } finally {
     uploadingImage.value = false;
-    // Reset the file input so the same file can be selected again
-    if (event.target) {
+    if (event.target?.value !== undefined) {
       event.target.value = '';
     }
   }
@@ -558,49 +549,39 @@ const setFeaturedImage = (index) => {
 // Remove Image
 const removeImage = (index) => {
   const removed = uploadedImages.value.splice(index, 1)[0];
-  if (removed.isFeatured && uploadedImages.value.length > 0) {
+  if (removed?.isFeatured && uploadedImages.value.length > 0) {
     uploadedImages.value[0].isFeatured = true;
   }
 };
 
 // Handle Form Submit
+const requireCondition = (condition, message) => {
+  if (!condition) {
+    createError.value = message;
+    return false;
+  }
+  return true;
+};
+
 const handleCreateRecipe = async (values) => {
   createError.value = '';
 
   const categoryId = values.category_id || selectedCategoryId.value;
-  if (!categoryId || categoryId === 0) {
-    createError.value = 'Please select a category';
-    return;
-  }
+  if (!requireCondition(categoryId && categoryId !== 0, 'Please select a category')) return;
 
   const validIngredients = ingredients.value.filter(ing => ing.name.trim() !== '');
-  if (validIngredients.length === 0) {
-    createError.value = 'Please add at least one ingredient';
-    return;
-  }
+  if (!requireCondition(validIngredients.length > 0, 'Please add at least one ingredient')) return;
 
   const hasMissingUnit = validIngredients.some((ing) => !ing.unit_id);
-  if (hasMissingUnit) {
-    createError.value = 'Please select a unit for every ingredient';
-    return;
-  }
+  if (!requireCondition(!hasMissingUnit, 'Please select a unit for every ingredient')) return;
 
   const validSteps = steps.value.filter(step => step.instruction.trim() !== '');
-  if (validSteps.length === 0) {
-    createError.value = 'Please add at least one preparation step';
-    return;
-  }
+  if (!requireCondition(validSteps.length > 0, 'Please add at least one preparation step')) return;
 
-  if (uploadedImages.value.length === 0) {
-    createError.value = 'Please upload at least one image';
-    return;
-  }
+  if (!requireCondition(uploadedImages.value.length > 0, 'Please upload at least one image')) return;
 
   const featuredImage = uploadedImages.value.find(img => img.isFeatured);
-  if (!featuredImage) {
-    createError.value = 'Please select a featured image';
-    return;
-  }
+  if (!requireCondition(!!featuredImage, 'Please select a featured image')) return;
 
   const recipeData = {
     category_id: parseInt(categoryId),
@@ -630,9 +611,6 @@ const handleCreateRecipe = async (values) => {
   };
 
   try {
-    console.log('[CREATE] Submitting recipe:', recipeData);
-    console.log('[CREATE] Token present:', !!token.value);
-
     const result = await client.mutate({
       mutation: CREATE_RECIPE_MUTATION,
       variables: { object: recipeData }
@@ -647,12 +625,10 @@ const handleCreateRecipe = async (values) => {
       throw new Error('Recipe created but no ID returned');
     }
 
-    alert('Recipe created successfully! Redirecting to your recipe...');
     await router.push(`/recipes/${createdId}`);
   } catch (err) {
     createError.value = err.message || 'An error occurred while creating the recipe';
     console.error('[CREATE] Exception:', err);
-    alert('Failed to create recipe: ' + err.message);
   }
 };
 </script>

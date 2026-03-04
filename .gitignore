@@ -38,3 +38,6 @@ node_modules/
 dist/
 .output/
 .nuxt/
+
+# Environment files
+backend/main/.env

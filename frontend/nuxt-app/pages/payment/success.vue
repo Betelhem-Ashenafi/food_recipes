@@ -49,16 +49,28 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { provideApolloClient, useApolloClient } from '@vue/apollo-composable';
+import apolloClient from '~/plugins/apollo.client';
+import gql from 'graphql-tag';
+import { useRouter, useRoute } from '#app';
+import { getApiUrl } from '~/utils/api';
 
-// Get API URL from runtime config
-const config = useRuntimeConfig();
-const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
-import { useRoute, useRouter } from 'vue-router';
+provideApolloClient(apolloClient);
 
-const route = useRoute();
-const router = useRouter();
+const { client } = useApolloClient();
 const recipe = ref(null);
 const recipeId = ref(null);
+const router = useRouter();
+const route = useRoute();
+
+const RECIPE_TITLE_QUERY = gql`
+  query GetRecipeTitle($id: Int!) {
+    recipes_by_pk(id: $id) {
+      id
+      title
+    }
+  }
+`;
 
 const verifyPayment = async () => {
   // Debug: Log all query params to see what Chapa is actually sending
@@ -110,6 +122,8 @@ const verifyPayment = async () => {
     }
   }
 
+      const paymentStatus = ref('verifying'); // 'verifying', 'success', 'pending', 'failed'
+      const paymentMessage = ref('Verifying your payment...');
   if (!extractedRecipeId) {
     // No recipe ID found - user might have navigated directly
     console.warn('No recipe ID found in payment success page');
@@ -204,17 +218,12 @@ const verifyPayment = async () => {
 
   // Fetch recipe details to show title
   try {
-    const recipeResponse = await fetch(`${getApiUrl()}/recipes/${extractedRecipeId}`);
-    if (recipeResponse.ok) {
-      recipe.value = await recipeResponse.json();
-      // Ensure recipe has id property
-      if (!recipe.value.id) {
-        recipe.value.id = extractedRecipeId;
-      }
-    } else {
-      // If recipe fetch fails, just store ID
-      recipe.value = { id: extractedRecipeId, title: 'Recipe' };
-    }
+    const result = await client.query({
+      query: RECIPE_TITLE_QUERY,
+      variables: { id: extractedRecipeId },
+      fetchPolicy: 'network-only'
+    });
+    recipe.value = result?.data?.recipes_by_pk || { id: extractedRecipeId, title: 'Recipe' };
   } catch (err) {
     console.error('Error fetching recipe:', err);
     recipe.value = { id: extractedRecipeId, title: 'Recipe' };
@@ -224,7 +233,6 @@ const verifyPayment = async () => {
 const goToRecipe = () => {
   // Always use recipeId.value if available, fallback to recipe.value?.id
   const idToUse = recipeId.value || recipe.value?.id;
-  
   if (idToUse) {
     console.log('Navigating to recipe:', idToUse);
     // Add query param to indicate coming from payment
@@ -239,8 +247,12 @@ const goToHome = () => {
   router.push('/home');
 };
 
-onMounted(() => {
-  verifyPayment();
+onMounted(async () => {
+  try {
+    await verifyPayment();
+  } catch (err) {
+    console.error('Error in payment success page:', err);
+  }
 });
 </script>
 

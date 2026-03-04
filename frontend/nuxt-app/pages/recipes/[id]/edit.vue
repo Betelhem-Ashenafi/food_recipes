@@ -237,7 +237,10 @@
             <div v-for="(ing, index) in ingredients" :key="index" class="mb-4 flex gap-3">
               <input v-model="ing.name" placeholder="Name" class="flex-1 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
               <input v-model="ing.quantity" placeholder="Qty" class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
-              <input v-model="ing.unit" placeholder="Unit" class="w-32 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
+              <select v-model="ing.unit_id" class="w-40 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white">
+                <option value="" disabled>Select</option>
+                <option v-for="u in units" :key="u.id" :value="String(u.id)">{{ u.name }}</option>
+              </select>
               <button type="button" @click="removeIngredient(index)" class="px-4 py-3 bg-red-500/20 text-red-400 rounded-lg">Remove</button>
             </div>
             <button type="button" @click="addIngredient" class="w-full px-4 py-3 border-2 border-dashed border-emerald-400/50 rounded-lg text-emerald-400">+ Add Ingredient</button>
@@ -288,6 +291,8 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { jwtDecode } from 'jwt-decode';
+import { useApolloClient } from '@vue/apollo-composable';
+import gql from 'graphql-tag';
 
 const route = useRoute();
 const router = useRouter();
@@ -296,6 +301,7 @@ const token = useCookie('auth_token');
 const loading = ref(true);
 const recipe = ref(null);
 const categories = ref([]);
+const units = ref([]);
 const ingredients = ref([]);
 const steps = ref([]);
 const updateError = ref('');
@@ -304,6 +310,116 @@ const uploadedImages = ref([]);
 const uploadingImage = ref(false);
 const isSubmitting = ref(false);
 const formErrors = ref({});
+const { client } = useApolloClient();
+
+const RECIPE_QUERY = gql`
+  query GetRecipe($id: Int!) {
+    recipes_by_pk(id: $id) {
+      id
+      title
+      description
+      category_id
+      preparation_time
+      price
+      user_id
+    }
+  }
+`;
+
+const RECIPE_INGREDIENTS_QUERY = gql`
+  query GetRecipeIngredients($id: Int!) {
+    recipe_ingredients(where: { recipe_id: { _eq: $id } }, order_by: { id: asc }) {
+      id
+      name
+      quantity
+      unit_id
+      unit {
+        id
+        name
+      }
+    }
+  }
+`;
+
+const RECIPE_STEPS_QUERY = gql`
+  query GetRecipeSteps($id: Int!) {
+    recipe_steps(where: { recipe_id: { _eq: $id } }, order_by: { step_number: asc }) {
+      id
+      step_number
+      instruction
+      image_url
+    }
+  }
+`;
+
+const RECIPE_IMAGES_QUERY = gql`
+  query GetRecipeImages($id: Int!) {
+    recipe_images(where: { recipe_id: { _eq: $id } }, order_by: { id: asc }) {
+      id
+      url
+      is_featured
+    }
+  }
+`;
+
+const CATEGORIES_QUERY = gql`
+  query GetCategories {
+    categories(order_by: { name: asc }) {
+      id
+      name
+      image_url
+    }
+  }
+`;
+
+const UNITS_QUERY = gql`
+  query GetUnits {
+    units(order_by: { id: asc }) {
+      id
+      name
+    }
+  }
+`;
+
+const UPDATE_RECIPE_MUTATION = gql`
+  mutation UpdateRecipe(
+    $recipeId: Int!
+    $recipe: recipes_set_input!
+    $ingredients: [recipe_ingredients_insert_input!]!
+    $steps: [recipe_steps_insert_input!]!
+    $images: [recipe_images_insert_input!]!
+  ) {
+    update_recipes_by_pk(pk_columns: { id: $recipeId }, _set: $recipe) {
+      id
+    }
+    delete_recipe_ingredients(where: { recipe_id: { _eq: $recipeId } }) {
+      affected_rows
+    }
+    insert_recipe_ingredients(objects: $ingredients) {
+      affected_rows
+    }
+    delete_recipe_steps(where: { recipe_id: { _eq: $recipeId } }) {
+      affected_rows
+    }
+    insert_recipe_steps(objects: $steps) {
+      affected_rows
+    }
+    delete_recipe_images(where: { recipe_id: { _eq: $recipeId } }) {
+      affected_rows
+    }
+    insert_recipe_images(objects: $images) {
+      affected_rows
+    }
+  }
+`;
+
+const UPLOAD_FILE_MUTATION = gql`
+  mutation UploadFile($file: UploadInput!) {
+    uploadFile(file: $file) {
+      url
+    }
+  }
+`;
 
 // Form values - use individual refs for maximum compatibility
 const formTitle = ref('');
@@ -345,23 +461,21 @@ onMounted(async () => {
   const currentUserId = getCurrentUserId();
   console.log('[EDIT] Current user ID:', currentUserId);
   
-  // Get API URL from runtime config
-  const config = useRuntimeConfig();
-  const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
-  
   try {
-    console.log('[EDIT] Fetching recipe from:', `${getApiUrl()}/recipes/${recipeId}`);
-    // Fetch recipe
-    const recipeRes = await fetch(`${getApiUrl()}/recipes/${recipeId}`);
-    console.log('[EDIT] Recipe response status:', recipeRes.status);
-    
-    if (!recipeRes.ok) {
-      const errorText = await recipeRes.text();
-      console.error('[EDIT] Recipe fetch failed:', errorText);
-      throw new Error(`Recipe not found: ${errorText}`);
+    console.log('[EDIT] Fetching recipe from Hasura:', recipeId);
+    const [recipeResult, ingredientsResult, stepsResult, imagesResult, categoriesResult, unitsResult] = await Promise.all([
+      client.query({ query: RECIPE_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
+      client.query({ query: RECIPE_INGREDIENTS_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
+      client.query({ query: RECIPE_STEPS_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
+      client.query({ query: RECIPE_IMAGES_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
+      client.query({ query: CATEGORIES_QUERY, fetchPolicy: 'network-only' }),
+      client.query({ query: UNITS_QUERY, fetchPolicy: 'network-only' })
+    ]);
+
+    recipe.value = recipeResult?.data?.recipes_by_pk || null;
+    if (!recipe.value) {
+      throw new Error('Recipe not found');
     }
-    
-    recipe.value = await recipeRes.json();
     console.log('[EDIT] Recipe loaded:', recipe.value);
     console.log('[EDIT] Recipe user_id:', recipe.value?.user_id);
     
@@ -396,52 +510,33 @@ onMounted(async () => {
       console.error('[EDIT] Recipe value is null/undefined');
     }
 
-    // Fetch ingredients
-    const ingRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/ingredients`);
-    if (ingRes.ok) {
-      const ingData = await ingRes.json();
-      // Ensure ingredients have the right structure
-      ingredients.value = ingData.map(ing => ({
-        name: ing.name || '',
-        quantity: ing.quantity || '',
-        unit: ing.unit || ''
-      }));
-      // If no ingredients, add one empty row
-      if (ingredients.value.length === 0) {
-        ingredients.value = [{ name: '', quantity: '', unit: '' }];
-      }
-      console.log('[EDIT] Ingredients loaded:', ingredients.value);
+    const ingData = ingredientsResult?.data?.recipe_ingredients || [];
+    ingredients.value = ingData.map(ing => ({
+      name: ing.name || '',
+      quantity: ing.quantity || '',
+      unit_id: ing.unit_id ? String(ing.unit_id) : ''
+    }));
+    if (ingredients.value.length === 0) {
+      ingredients.value = [{ name: '', quantity: '', unit_id: '' }];
     }
+    console.log('[EDIT] Ingredients loaded:', ingredients.value);
 
-    // Fetch steps
-    const stepsRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/steps`);
-    if (stepsRes.ok) {
-      const stepsData = await stepsRes.json();
-      // Ensure steps have the right structure
-      steps.value = stepsData.map(step => ({
-        instruction: step.instruction || '',
-        image_url: step.image_url || ''
-      }));
-      // If no steps, add one empty row
-      if (steps.value.length === 0) {
-        steps.value = [{ instruction: '', image_url: '' }];
-      }
-      console.log('[EDIT] Steps loaded:', steps.value);
+    const stepsData = stepsResult?.data?.recipe_steps || [];
+    steps.value = stepsData.map(step => ({
+      instruction: step.instruction || '',
+      image_url: step.image_url || ''
+    }));
+    if (steps.value.length === 0) {
+      steps.value = [{ instruction: '', image_url: '' }];
     }
+    console.log('[EDIT] Steps loaded:', steps.value);
 
-    // Fetch existing images
-    const imagesRes = await fetch(`${getApiUrl()}/recipes/${recipeId}/images`);
-    if (imagesRes.ok) {
-      const images = await imagesRes.json();
-      uploadedImages.value = images.map(img => ({ url: img.url, isFeatured: img.is_featured }));
-    }
+    const images = imagesResult?.data?.recipe_images || [];
+    uploadedImages.value = images.map(img => ({ url: img.url, isFeatured: img.is_featured }));
 
-    // Fetch categories
-    const catRes = await fetch(`${getApiUrl()}/categories`);
-    if (catRes.ok) {
-      categories.value = await catRes.json();
-      console.log('[EDIT] Categories loaded:', categories.value.length);
-    }
+    categories.value = categoriesResult?.data?.categories || [];
+    units.value = unitsResult?.data?.units || [];
+    console.log('[EDIT] Categories loaded:', categories.value.length);
   } catch (err) {
     console.error('[EDIT] Error loading data:', err);
     updateError.value = err.message || 'Failed to load recipe data';
@@ -452,7 +547,7 @@ onMounted(async () => {
   }
 });
 
-const addIngredient = () => ingredients.value.push({ name: '', quantity: '', unit: '' });
+const addIngredient = () => ingredients.value.push({ name: '', quantity: '', unit_id: '' });
 const removeIngredient = (index) => {
   if (ingredients.value.length > 1) ingredients.value.splice(index, 1);
 };
@@ -493,23 +588,33 @@ const handleMultipleImageUpload = async (event) => {
 
   try {
     const uploadPromises = files.map(async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch(`${getApiUrl()}/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token.value}`
-        },
-        body: formData
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          const base64String = reader.result.split(',')[1];
+          resolve(base64String);
+        };
+        reader.onerror = (error) => reject(error);
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to upload ${file.name}`);
+      const result = await client.mutate({
+        mutation: UPLOAD_FILE_MUTATION,
+        variables: {
+          file: {
+            filename: file.name,
+            mimetype: file.type,
+            content: base64
+          }
+        }
+      });
+
+      const url = result.data?.uploadFile?.url;
+      if (!url) {
+        throw new Error(`No URL returned for ${file.name}`);
       }
 
-      const data = await response.json();
-      return { url: data.url, isFeatured: false };
+      return { url, isFeatured: false };
     });
 
     const uploaded = await Promise.all(uploadPromises);
@@ -643,6 +748,13 @@ const handleUpdateRecipe = async (values) => {
     return;
   }
 
+  const hasMissingUnit = validIngredients.some((ing) => !ing.unit_id);
+  if (hasMissingUnit) {
+    updateError.value = 'Please select a unit for every ingredient';
+    isSubmitting.value = false;
+    return;
+  }
+
   // Validate steps
   const validSteps = steps.value.filter(step => step.instruction && step.instruction.trim() !== '');
   if (validSteps.length === 0) {
@@ -653,14 +765,9 @@ const handleUpdateRecipe = async (values) => {
 
   // Validate images (allow keeping existing images if no new ones uploaded)
   if (uploadedImages.value.length === 0) {
-    // If editing and no images uploaded, use existing thumbnail
-    if (recipe.value?.thumbnail_url) {
-      uploadedImages.value = [{ url: recipe.value.thumbnail_url, isFeatured: true }];
-    } else {
-      updateError.value = 'Please upload at least one image';
-      isSubmitting.value = false;
-      return;
-    }
+    updateError.value = 'Please upload at least one image';
+    isSubmitting.value = false;
+    return;
   }
 
   // Find featured image
@@ -677,11 +784,11 @@ const handleUpdateRecipe = async (values) => {
     return;
   }
   
-  // Format ingredients to match backend model (name, quantity, unit)
+  // Format ingredients to match schema (name, quantity, unit_id)
   const formattedIngredients = validIngredients.map(ing => ({
     name: ing.name || '',
     quantity: ing.quantity || '',
-    unit: ing.unit || ''
+    unit_id: parseInt(ing.unit_id)
   }));
   
   // Format steps to match backend model (instruction, image_url)
@@ -697,7 +804,6 @@ const handleUpdateRecipe = async (values) => {
     description: values.description,
     preparation_time: parseInt(values.preparation_time),
     price: parseFloat(values.price) || 0,
-    thumbnail_url: featuredImage.url,
     ingredients: formattedIngredients,
     steps: formattedSteps,
     images: uploadedImages.value.map(img => img.url)
@@ -706,68 +812,55 @@ const handleUpdateRecipe = async (values) => {
   console.log('[EDIT] Formatted recipe data to send:', recipeData);
 
   try {
-    console.log('[EDIT] ========== SENDING PUT REQUEST ==========');
-    console.log('[EDIT] URL:', `${getApiUrl()}/recipes/${recipeId}`);
+    console.log('[EDIT] ========== SENDING GRAPHQL MUTATION ==========');
     console.log('[EDIT] Updating recipe:', recipeId);
-    console.log('[EDIT] Recipe data being sent:', JSON.stringify(recipeData, null, 2));
-    console.log('[EDIT] Data summary - Title:', recipeData.title, 'Category:', recipeData.category_id, 'Ingredients:', recipeData.ingredients.length, 'Steps:', recipeData.steps.length, 'Images:', recipeData.images.length);
-    console.log('[EDIT] Token present:', !!token.value);
-    console.log('[EDIT] Token preview:', token.value ? token.value.substring(0, 20) + '...' : 'NO TOKEN');
-    
-    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token.value}`
-      },
-      body: JSON.stringify(recipeData)
+
+    const recipeSet = {
+      category_id: recipeData.category_id,
+      title: recipeData.title,
+      description: recipeData.description,
+      preparation_time: recipeData.preparation_time,
+      price: recipeData.price
+    };
+
+    const ingredientsPayload = formattedIngredients.map((ing) => ({
+      recipe_id: recipeId,
+      name: ing.name,
+      quantity: ing.quantity,
+      unit_id: ing.unit_id
+    }));
+
+    const stepsPayload = formattedSteps.map((step, index) => ({
+      recipe_id: recipeId,
+      step_number: index + 1,
+      instruction: step.instruction,
+      image_url: step.image_url || ''
+    }));
+
+    const imagesPayload = uploadedImages.value.map((img) => ({
+      recipe_id: recipeId,
+      url: img.url,
+      is_featured: img.isFeatured
+    }));
+
+    await client.mutate({
+      mutation: UPDATE_RECIPE_MUTATION,
+      variables: {
+        recipeId,
+        recipe: recipeSet,
+        ingredients: ingredientsPayload,
+        steps: stepsPayload,
+        images: imagesPayload
+      }
     });
-    
-    console.log('[EDIT] ========== RESPONSE RECEIVED ==========');
-    console.log('[EDIT] Response status:', response.status, response.statusText);
-    console.log('[EDIT] Response headers:', Object.fromEntries(response.headers.entries()));
 
-    // Read response body once (can only be read once)
-    const responseText = await response.text();
-    
-    if (!response.ok) {
-      let errorMessage = 'Failed to update recipe';
-      try {
-        const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.error || errorJson.message || responseText || errorMessage;
-      } catch (parseError) {
-        // If not JSON, use the text as error message
-        errorMessage = responseText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-
-    // Parse successful response
-    let data = null;
-    if (responseText) {
-      try {
-        data = JSON.parse(responseText);
-        console.log('[EDIT] Recipe updated successfully:', data);
-      } catch (e) {
-        // Response is not JSON, that's okay - assume success
-        console.log('[EDIT] Response is not JSON, assuming success');
-        data = { message: 'Recipe updated successfully' };
-      }
-    } else {
-      data = { message: 'Recipe updated successfully' };
-    }
-    
-    // Show success notification
-    const successMessage = data?.message || 'Recipe updated successfully!';
-    
-    // Use a more elegant notification instead of alert
+    const successMessage = 'Recipe updated successfully!';
     if (typeof window !== 'undefined' && window.showNotification) {
       window.showNotification(successMessage, 'success');
     } else {
       alert(successMessage);
     }
-    
-    // Redirect to recipe detail page
+
     await router.push(`/recipes/${recipeId}`);
   } catch (err) {
     updateError.value = err.message || 'An error occurred while updating the recipe';

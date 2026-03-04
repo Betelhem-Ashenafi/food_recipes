@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +15,12 @@ import (
 
 	graphql "github.com/hasura/go-graphql-client"
 )
+
+// userIDKeyType is a custom type for context keys to avoid collisions
+type userIDKeyType string
+
+// userIDKey is the key used to store/retrieve user ID from context
+var userIDKey = userIDKeyType("userID")
 
 // ChapaConfig holds configuration for Chapa API
 type ChapaConfig struct {
@@ -65,6 +72,8 @@ type ChapaInitializeResponse struct {
 
 // InitializePaymentHandler starts the payment process
 func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
+	// Debug: Print Chapa.SecretKey to verify .env loading
+	log.Println("[PAYMENT DEBUG] Chapa.SecretKey:", Chapa.SecretKey)
 	var req InitializePaymentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -117,7 +126,7 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 	// Get Frontend URL for return URL
 	// Try multiple methods to get the frontend URL
 	frontendURL := getEnv("FRONTEND_URL", "")
-	
+
 	// If not set in env, try to get from request Origin header
 	if frontendURL == "" {
 		origin := r.Header.Get("Origin")
@@ -126,7 +135,7 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("[PAYMENT] Using Origin header: %s\n", frontendURL)
 		}
 	}
-	
+
 	// If still not set, try Referer header
 	if frontendURL == "" {
 		referer := r.Header.Get("Referer")
@@ -142,15 +151,15 @@ func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	// Last resort: use default (but this should rarely happen)
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
 		fmt.Printf("[PAYMENT] WARNING: Using default localhost:3000 - FRONTEND_URL not set and no headers available\n")
 	}
-	
+
 	frontendURL = strings.TrimSuffix(frontendURL, "/")
-	
+
 	// Debug: Log the frontend URL being used
 	fmt.Printf("[PAYMENT] FRONTEND_URL from env: %s\n", os.Getenv("FRONTEND_URL"))
 	fmt.Printf("[PAYMENT] Origin header: %s\n", r.Header.Get("Origin"))
@@ -465,7 +474,8 @@ func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
 		_, err := DB.Exec(`
 			INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status)
 			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (chapa_tx_ref) DO NOTHING
+			ON CONFLICT (chapa_tx_ref) DO UPDATE
+			SET status = 'success', amount = EXCLUDED.amount, currency = EXCLUDED.currency
 		`, userID, recipeID, verifyResp.Data.Amount, "ETB", txRef, "success")
 
 		if err != nil {

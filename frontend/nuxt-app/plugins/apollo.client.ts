@@ -1,70 +1,56 @@
-import { ApolloClient, InMemoryCache, createHttpLink } from '@apollo/client/core';
+// This is a Nuxt plugin – it runs when your app starts.
+import { createHttpLink, InMemoryCache, ApolloClient } from '@apollo/client/core';
 import { setContext } from '@apollo/client/link/context';
-import { provideApolloClient, DefaultApolloClient } from '@vue/apollo-composable';
-
+import { DefaultApolloClient } from '@vue/apollo-composable';
 export default defineNuxtPlugin((nuxtApp) => {
-  // Auth link to inject JWT from cookie
-  const authLink = setContext((_, { headers }) => {
+  // -------------------- AUTH: Attach JWT token to every request --------------------
+  // Think of this as a "stamp" that adds the user's ID card to every envelope.
+  const authLink = setContext((_, prevContext) => {
     let token = '';
     if (process.client) {
       const cookie = useCookie('auth_token');
       token = cookie.value ?? '';
     }
-    const newHeaders: Record<string, string> = { ...headers } as Record<string, string>;
-    // Only include Authorization when a token is present
+    const headers = prevContext.headers || {};
+    const newHeaders = { ...headers };
     if (token) newHeaders.Authorization = `Bearer ${token}`;
-    // For local development: include Hasura admin secret so frontend can access Hasura
-    // WARNING: sending admin secret from the browser is insecure. Use only for local testing.
-    newHeaders['x-hasura-admin-secret'] = 'myhasurasecret';
     return { headers: newHeaders };
   });
 
-  // Get Hasura URL from environment
+  // -------------------- WHERE TO SEND REQUESTS --------------------
+  // This is the address of your Hasura GraphQL API.
   const config = useRuntimeConfig();
-  const hasuraUrl = config.public?.hasuraUrl || process.env.NUXT_PUBLIC_HASURA_URL || 'http://localhost:8080/v1/graphql';
-  
-  // Debug log to check what URL is being used
-  if (process.client) {
-    console.log('[APOLLO] Using Hasura URL:', hasuraUrl);
-  }
-  
-  const httpLink = createHttpLink({
-    uri: hasuraUrl,
-  });
+  const hasuraUrl = config.public?.hasuraUrl || 'http://localhost:8080/v1/graphql';
 
-  // Create cache with safe handling for null/undefined
+  // This creates the network link – the actual path the messenger walks.
+  const httpLink = createHttpLink({ uri: hasuraUrl });
+
+  // -------------------- CACHE: Remember data so you don't ask twice --------------------
+  // Apollo keeps a "memory" of previous answers. This cache configuration tells it how to handle special cases.
   const cache = new InMemoryCache({
-    // Add type policies to handle null/undefined safely
+    // Here we're just making sure that lists (like recipes) are always treated as arrays, even if empty.
     typePolicies: {
       Query: {
         fields: {
           recipes: {
             merge(existing = [], incoming) {
-              // Ensure we always return an array, never null/undefined
-              if (!incoming || !Array.isArray(incoming)) {
-                return existing || [];
-              }
-              return incoming;
+              return incoming || existing; // keep existing if incoming is nothing
             },
             read(existing) {
-              // Ensure read always returns an array
-              return existing || [];
+              return existing || []; // always return an array (never null)
             }
           },
           categories: {
             merge(existing = [], incoming) {
-              if (!incoming || !Array.isArray(incoming)) {
-                return existing || [];
-              }
-              return incoming;
+              return incoming || existing;
             },
             read(existing) {
               return existing || [];
             }
           },
+          // For a single recipe, just return it or null.
           recipes_by_pk: {
             merge(existing, incoming) {
-              // Return incoming if it exists, otherwise existing, but never null
               return incoming || existing || null;
             },
             read(existing) {
@@ -74,25 +60,23 @@ export default defineNuxtPlugin((nuxtApp) => {
         }
       }
     },
-    // Add result caching policy to prevent null/undefined issues
-    resultCaching: true
+    resultCaching: true // enable caching
   });
 
+  // -------------------- PUT IT ALL TOGETHER --------------------
+  // Build the messenger: first attach auth, then send request, with a cache.
   const apolloClient = new ApolloClient({
-    link: authLink.concat(httpLink),
+    link: authLink.concat(httpLink), // chain: add token, then send
     cache: cache,
-    // Add default options to handle errors gracefully
     defaultOptions: {
       watchQuery: {
-        errorPolicy: 'all',
-        fetchPolicy: 'cache-and-network',
-        // Return partial data even if there are errors
-        returnPartialData: true
+        errorPolicy: 'all',        // don't crash on errors, just tell me
+        fetchPolicy: 'cache-and-network', // use cache first, then update from network
+        returnPartialData: true     // give me whatever data you have, even if some fields error
       },
       query: {
         errorPolicy: 'all',
-        fetchPolicy: 'cache-first',
-        returnPartialData: true
+        fetchPolicy: 'cache-first' // for one‑off queries, use cache first
       },
       mutate: {
         errorPolicy: 'all'
@@ -100,12 +84,8 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   });
 
-  // Register as the default Apollo client for the Vue app so `useQuery`/`useMutation` work
-  if (nuxtApp.vueApp && nuxtApp.vueApp.provide) {
-    nuxtApp.vueApp.provide(DefaultApolloClient, apolloClient);
-  }
-  // Also make available via Nuxt injection
-  nuxtApp.provide('apollo', apolloClient);
-  // Also provide with $ prefix so `useNuxtApp().$apollo` is always available
-  nuxtApp.provide('$apollo', apolloClient);
+  // -------------------- MAKE IT AVAILABLE TO VUE COMPONENTS --------------------
+  // Now any component can use `useQuery`, `useMutation` and they'll automatically use this client.
+  nuxtApp.vueApp.provide(DefaultApolloClient, apolloClient);
+  nuxtApp.provide('apollo', apolloClient); // optional, but nice to have
 });

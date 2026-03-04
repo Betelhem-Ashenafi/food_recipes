@@ -1,28 +1,28 @@
 <template>
   <div class="relative min-h-screen">
-    <!-- Background Image with Overlay - Beautiful Food Spread (Home Page) -->
+    <!-- Background Image -->
     <div class="fixed inset-0 z-0">
       <img 
         src="https://images.unsplash.com/photo-1544025162-d76694265947?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" 
-        alt="Elegant Food Spread" 
+        alt="Food background" 
         class="w-full h-full object-cover brightness-60"
       >
       <div class="absolute inset-0 bg-black/80"></div>
     </div>
 
-    <!-- Content Container -->
+    <!-- Content -->
     <div class="relative z-10">
-      <!-- Hero Section with Search -->
+      <!-- Hero Section -->
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-16">
         <div class="flex flex-col items-center justify-center mb-14">
-          <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-3xl shadow-2xl px-8 py-10 w-full text-center animate-fade-in-up">
-            <h1 class="text-5xl md:text-6xl lg:text-7xl font-serif font-extrabold text-white mb-4 tracking-tight drop-shadow-lg">
+          <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-3xl shadow-2xl px-8 py-10 w-full text-center">
+            <h1 class="text-5xl md:text-6xl lg:text-7xl font-serif font-extrabold text-white mb-4">
               <span class="text-emerald-400">Legendary</span> Recipes Await
             </h1>
             <p class="text-lg md:text-xl text-gray-200 max-w-2xl mx-auto font-light mb-2">
-              Unleash your inner chef. Discover, create, and share premium recipes in a stunning, modern experience.
+              Unleash your inner chef. Discover, create, and share premium recipes.
             </p>
-            <p class="text-base text-emerald-300 font-medium mb-0">Premium. Inspiring. Unforgettable.</p>
+            <p class="text-base text-emerald-300 font-medium">Premium. Inspiring. Unforgettable.</p>
           </div>
         </div>
 
@@ -35,156 +35,94 @@
               </svg>
             </div>
             <input
-              ref="topSearchInput"
               v-model="searchQuery"
               type="text"
               placeholder="Search recipes by title..."
-              @keyup.enter="scrollToResults"
-              class="block w-full pl-12 pr-4 py-4 border border-white/20 rounded-xl bg-white/10 backdrop-blur-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all text-lg"
+              @keyup.enter="handleSearchSubmit"
+              class="block w-full pl-12 pr-4 py-4 border border-white/20 rounded-xl bg-white/10 backdrop-blur-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500"
             />
           </div>
         </div>
 
-        <!-- Categories Section -->
+        <!-- Categories -->
         <div class="mb-16">
           <div class="text-center mb-8">
             <h2 class="text-3xl font-bold text-white mb-2">Browse by Category</h2>
             <p class="text-gray-400">Explore recipes organized by cuisine and type</p>
           </div>
           
-          <!-- Loading Categories -->
           <div v-if="categoriesPending" class="flex justify-center py-12">
             <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-emerald-500"></div>
           </div>
-
-          <!-- Categories Grid -->
+          <div v-else-if="categoriesError" class="text-center py-8 text-red-300">
+            Failed to load categories: {{ categoriesError.message }}
+          </div>
+          <div v-else-if="categories.length === 0" class="text-center py-8 text-gray-400">
+            Categories are unavailable right now.
+          </div>
           <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
             <button
               v-for="category in categories"
               :key="category.id"
               @click="selectedCategory = selectedCategory === category.id ? null : category.id"
               :class="[
-                'group relative overflow-hidden rounded-xl border transition-all duration-300 transform hover:scale-105 hover:shadow-2xl',
+                'group relative overflow-hidden rounded-xl border transition-all duration-300 hover:scale-105 hover:shadow-2xl',
                 selectedCategory === category.id
                   ? 'ring-2 ring-emerald-400 shadow-lg shadow-emerald-500/50'
                   : 'hover:shadow-xl'
               ]"
             >
-              <!-- Category Image Background -->
               <div class="relative h-32 md:h-40 overflow-hidden">
                 <img 
-                  v-if="category.image_url"
                   :src="category.image_url" 
                   :alt="category.name"
                   class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   @error="handleImageError"
                 />
-                <!-- Fallback gradient if no image -->
-                <div 
-                  v-else
-                  class="w-full h-full bg-gradient-to-br from-emerald-500/30 via-teal-500/30 to-blue-500/30"
-                >
-                  <div class="flex items-center justify-center h-full text-5xl">
-                    {{ getCategoryEmoji(category.name) }}
-                  </div>
-                </div>
-                
-                <!-- Overlay gradient for better text readability -->
                 <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
-                
-                <!-- Category Name -->
                 <div class="absolute bottom-0 left-0 right-0 p-3 text-center">
-                  <p class="text-white font-bold text-sm md:text-base drop-shadow-lg">
-                    {{ category.name }}
-                  </p>
+                  <p class="text-white font-bold text-sm md:text-base drop-shadow-lg">{{ category.name }}</p>
                 </div>
-                
-                <!-- Selected Checkmark -->
-                <div v-if="selectedCategory === category.id" class="absolute top-2 right-2">
-                  <div class="bg-emerald-500 rounded-full p-1.5 shadow-lg">
-                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                    </svg>
-                  </div>
+                <div v-if="selectedCategory === category.id" class="absolute top-2 right-2 bg-emerald-500 rounded-full p-1.5 shadow-lg">
+                  <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                  </svg>
                 </div>
-                
-                <!-- Hover effect overlay -->
-                <div class="absolute inset-0 bg-emerald-500/0 group-hover:bg-emerald-500/10 transition-colors duration-300"></div>
               </div>
             </button>
           </div>
         </div>
 
-        <!-- Filters Section -->
-        <div ref="filtersSection" class="max-w-4xl mx-auto mb-12">
+        <!-- Filters -->
+        <div class="max-w-4xl mx-auto mb-12">
           <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-6">
             <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <!-- Preparation Time Filter -->
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Preparation Time</label>
-                <select
-                  v-model="prepTimeFilter"
-                  class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
+              <div class="w-full">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Prep Time</label>
+                <select v-model="prepTimeFilter" class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white focus:ring-2 focus:ring-emerald-500">
                   <option value="">Any Time</option>
-                  <option value="15">15 minutes or less</option>
-                  <option value="30">30 minutes or less</option>
-                  <option value="60">1 hour or less</option>
-                  <option value="120">2 hours or less</option>
+                  <option value="15">≤15 min</option>
+                  <option value="30">≤30 min</option>
+                  <option value="60">≤1 hour</option>
+                  <option value="120">≤2 hours</option>
                 </select>
               </div>
-
-              <!-- Ingredient Filter -->
-              <div>
+              <div class="w-full">
                 <label class="block text-sm font-medium text-gray-300 mb-2">Ingredient</label>
-                <input
-                  v-model="ingredientFilter"
-                  type="text"
-                  placeholder="e.g., chicken, tomato"
-                  class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
+                <input v-model="ingredientFilter" type="text" placeholder="e.g., chicken" class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500">
               </div>
-
-              <!-- Creator Filter -->
-              <div>
+              <div class="w-full">
                 <label class="block text-sm font-medium text-gray-300 mb-2">Creator</label>
-                <input
-                  v-model="creatorFilter"
-                  type="text"
-                  placeholder="Chef name..."
-                  class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
+                <input v-model="creatorFilter" type="text" placeholder="Chef name" class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500">
               </div>
-
-              <!-- Sort By -->
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Sort By</label>
-                <select
-                  v-model="sortBy"
-                  class="block w-full px-4 py-2 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="title">Title A-Z</option>
-                </select>
-              </div>
-
-              <!-- Search and Clear Filters Buttons -->
-              <div class="flex flex-col gap-2">
-                <button
-                  @click="scrollToFilters"
-                  class="w-full px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 font-medium flex items-center justify-center gap-2"
-                >
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  Search
+              <div class="flex flex-col justify-end">
+                <button @click="applyFilters" class="w-full px-4 py-2 border border-emerald-400/40 rounded-lg bg-emerald-500/20 text-white hover:bg-emerald-500/30 font-medium">
+                  Apply Filter
                 </button>
-                <button
-                  @click="clearFilters"
-                  class="w-full px-4 py-2 border border-white/30 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors font-medium"
-                >
-                  Clear Filters
+              </div>
+              <div class="flex flex-col justify-end">
+                <button @click="clearFilters" class="w-full px-4 py-2 border border-white/30 rounded-lg bg-white/5 text-white hover:bg-white/10 font-medium">
+                  Clear
                 </button>
               </div>
             </div>
@@ -192,134 +130,78 @@
         </div>
       </div>
 
-      <!-- Recipes Section -->
+      <!-- Recipes -->
       <div ref="recipesSection" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         <div class="text-center mb-8">
-          <h2 class="text-3xl font-bold text-white mb-2">
-            {{ showingAll ? 'All Recipes' : 'Featured Recipes' }}
-          </h2>
-          <p class="text-gray-400">{{ filteredRecipes.length }} recipe{{ filteredRecipes.length !== 1 ? 's' : '' }} found</p>
+          <h2 class="text-3xl font-bold text-white mb-2">All Recipes</h2>
+          <p class="text-gray-400">{{ recipes.length }} recipe{{ recipes.length !== 1 ? 's' : '' }} found</p>
         </div>
 
-        <!-- Loading State -->
         <div v-if="pending" class="flex justify-center py-20">
           <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-emerald-500"></div>
         </div>
-
-        <!-- Error State -->
         <div v-else-if="error" class="text-center py-20">
-          <div class="inline-block p-4 rounded-full bg-red-500/20 border border-red-500/50 text-red-400 mb-4">
-            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-          </div>
-          <h3 class="text-lg font-medium text-white">Oops! Something went wrong.</h3>
+          <div class="inline-block p-4 rounded-full bg-red-500/20 border border-red-500/50 text-red-400 mb-4">⚠️</div>
+          <h3 class="text-lg font-medium text-white">Something went wrong</h3>
           <p class="mt-2 text-gray-400">{{ error.message }}</p>
         </div>
-
-        <!-- Recipe Grid -->
-        <div v-else-if="displayedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div v-else-if="recipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div
-            v-for="recipe in displayedRecipes"
+            v-for="recipe in recipes"
             :key="recipe.id"
-            class="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl hover:shadow-emerald-500/20 cursor-pointer"
-            @click="navigateToRecipe(recipe.id)"
+            class="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-emerald-500/20"
           >
-            <!-- Image -->
             <div class="relative h-64 overflow-hidden">
-              <img 
-                :src="getRecipeImage(recipe)" 
-                :alt="recipe.title"
-                class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-              >
+                <img :src="(recipe.recipe_images && recipe.recipe_images[0]?.url) || 'https://images.unsplash.com/placeholder.jpg'" :alt="recipe.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
               <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-              
-              <!-- Price Badge -->
               <div class="absolute top-4 right-4">
-                <span v-if="recipe.price > 0" class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/90 text-white backdrop-blur-sm shadow-lg">
-                  💎 {{ recipe.price }} Credits
-                </span>
-                <span v-else class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-green-500/90 text-white backdrop-blur-sm shadow-lg">
-                  Free
-                </span>
+                <span v-if="recipe.price > 0" class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/90 text-white backdrop-blur-sm shadow-lg">💎 {{ recipe.price }} Credits</span>
+                <span v-else class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-green-500/90 text-white backdrop-blur-sm shadow-lg">Free</span>
               </div>
-
-              <!-- Preparation Time -->
               <div class="absolute bottom-4 left-4 flex items-center text-white text-sm font-medium">
-                <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 {{ recipe.preparation_time || 'N/A' }} min
               </div>
             </div>
-
-            <!-- Content -->
             <div class="p-6">
-              <!-- User Info -->
               <div class="flex items-center mb-4">
                 <div class="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold text-sm shadow-lg">
-                  {{ recipe.user?.name?.charAt(0) || 'C' }}
+                  {{ getRecipeAuthorName(recipe).charAt(0) || 'C' }}
                 </div>
                 <div class="ml-3">
-                  <p class="text-white font-medium text-sm">{{ recipe.user?.name || 'Chef' }}</p>
+                  <p class="text-white font-medium text-sm">{{ getRecipeAuthorName(recipe) }}</p>
                   <p class="text-gray-400 text-xs">{{ formatDate(recipe.created_at) }}</p>
                 </div>
               </div>
-              
-              <h3 class="text-xl font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors line-clamp-1">
-                {{ recipe.title }}
-              </h3>
-              <p class="text-gray-300 text-sm line-clamp-2 mb-6 min-h-[2.5rem]">
-                {{ recipe.description }}
-              </p>
-
-              <NuxtLink 
-                :to="`/recipes/${recipe.id}`" 
-                class="block w-full text-center py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 shadow-lg hover:shadow-emerald-500/30 transform hover:-translate-y-0.5"
-              >
+              <h3 class="text-xl font-bold text-white mb-2 group-hover:text-emerald-400 line-clamp-1">{{ recipe.title }}</h3>
+              <p class="text-emerald-300 text-xs mb-2">{{ getRecipeCategoryName(recipe) }}</p>
+              <p class="text-gray-300 text-sm line-clamp-2 mb-6">{{ recipe.description }}</p>
+              <NuxtLink :to="`/recipes/${recipe.id}`" class="block w-full text-center py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 shadow-lg hover:shadow-emerald-500/30">
                 View Recipe
               </NuxtLink>
             </div>
           </div>
         </div>
-
-        <!-- No Results -->
         <div v-else class="text-center py-20">
-          <div class="inline-block p-4 rounded-full bg-gray-500/20 border border-gray-500/50 text-gray-400 mb-4">
-            <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
+          <div class="inline-block p-4 rounded-full bg-gray-500/20 border border-gray-500/50 text-gray-400 mb-4">😕</div>
           <h3 class="text-xl font-medium text-white mb-2">No recipes found</h3>
-          <p class="text-gray-400">Try adjusting your search or filters</p>
+          <p class="text-gray-400">Try adjusting your filters</p>
         </div>
 
-        <!-- Show More Button -->
-        <div v-if="!showingAll && filteredRecipes.length > featuredCount" class="text-center mt-12">
-          <button
-            @click="showingAll = true"
-            class="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 shadow-lg hover:shadow-emerald-500/30 transform hover:-translate-y-1"
-          >
-            Show All Recipes ({{ filteredRecipes.length - featuredCount }} more)
-          </button>
-        </div>
-
-        <div v-if="showingAll && filteredRecipes.length > featuredCount" class="text-center mt-8">
-          <button
-            @click="showingAll = false; scrollToTop()"
-            class="px-6 py-3 bg-white/10 border border-white/20 text-white font-medium rounded-lg hover:bg-white/20 transition-all"
-          >
-            Show Less
-          </button>
+        <!-- Pagination -->
+        <div class="flex justify-center gap-4 mt-8">
+          <button @click="page = Math.max(1, page - 1)" :disabled="page === 1" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Previous</button>
+          <span class="text-white">Page {{ page }}</span>
+          <button @click="page = page + 1" :disabled="recipes.length < limit" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Next</button>
         </div>
       </div>
     </div>
-    
-    <!-- Floating Action Button for Mobile - Create Recipe -->
+
+    <!-- Mobile Create Button -->
     <NuxtLink 
       v-if="isAuthenticated"
       to="/create"
-      class="fixed bottom-6 right-6 z-50 sm:hidden bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full p-4 shadow-2xl hover:shadow-emerald-500/50 transition-all transform hover:scale-110 active:scale-95"
+      class="fixed bottom-6 right-6 z-50 sm:hidden bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full p-4 shadow-2xl hover:shadow-emerald-500/50 transition-transform hover:scale-110"
       title="Create Recipe"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -330,51 +212,25 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
 
-// Authentication check
+// Authentication
 const token = useCookie('auth_token');
 const isAuthenticated = computed(() => !!token.value);
 
-// Refs for scrolling
-const filtersSection = ref(null);
+// Filters
+const searchQuery = ref('');
+const selectedCategory = ref(null);
+const prepTimeFilter = ref('');
+const ingredientFilter = ref('');
+const creatorFilter = ref('');
+const page = ref(1);
+const limit = ref(6);
 const recipesSection = ref(null);
-const topSearchInput = ref(null);
 
-// GraphQL Query for Recipes (using Vue Apollo with Hasura)
-const recipesQuery = gql`
-  query GetRecipes {
-    recipes(order_by: { created_at: desc }) {
-      id
-      title
-      description
-      thumbnail_url
-      price
-      preparation_time
-      created_at
-      category_id
-      user_id
-      user {
-        id
-        name
-      }
-      category {
-        id
-        name
-      }
-      recipe_ingredients {
-        id
-        name
-        quantity
-        unit
-      }
-    }
-  }
-`;
-
-// GraphQL Query for Categories (using Vue Apollo with Hasura)
+// GraphQL Queries
 const categoriesQuery = gql`
   query GetCategories {
     categories(order_by: { name: asc }) {
@@ -385,97 +241,155 @@ const categoriesQuery = gql`
   }
 `;
 
-// Track if component is mounted to prevent queries from running too early
-const isMounted = ref(false);
-
-// Fetch Recipes using Vue Apollo with error handling
-const { result: recipesData, error: recipesError, loading: recipesPending } = useQuery(
-  recipesQuery,
-  {},
-  {
-    skip: () => !isMounted.value,
-    errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
-    returnPartialData: true
+const recipesQuery = gql`
+  query GetRecipes(
+    $limit: Int, 
+    $offset: Int,
+    $where: recipes_bool_exp
+  ) {
+    recipes(
+      limit: $limit, 
+      offset: $offset,
+      where: $where,
+      order_by: { created_at: desc }
+    ) {
+      id
+      title
+      description
+      category_id
+      price
+      preparation_time
+      created_at
+      user_id
+      user { id name }
+      recipe_images(order_by: { id: asc }, limit: 1) { url }
+    }
   }
-);
+`;
 
-// Fetch Categories using Vue Apollo with error handling
+const usersByIdsQuery = gql`
+  query GetUsersByIds($userIds: [Int!]) {
+    users(where: { id: { _in: $userIds } }) {
+      id
+      name
+    }
+  }
+`;
+
+// Fetch categories
 const { result: categoriesData, loading: categoriesPending, error: categoriesError } = useQuery(
   categoriesQuery,
   {},
+  { errorPolicy: 'all', fetchPolicy: 'cache-and-network' }
+);
+const categories = computed(() => categoriesData.value?.categories || []);
+
+// Build filter variables for recipes
+const filterVariables = computed(() => {
+  const title = searchQuery.value?.trim() || '';
+  const creator = creatorFilter.value?.trim() || '';
+  const ingredient = ingredientFilter.value?.trim() || '';
+
+  const andFilters = [{ title: { _ilike: title ? `%${title}%` : '%' } }];
+
+  if (selectedCategory.value !== null && selectedCategory.value !== undefined) {
+    andFilters.push({ category_id: { _eq: selectedCategory.value } });
+  }
+
+  if (prepTimeFilter.value !== null && prepTimeFilter.value !== undefined && prepTimeFilter.value !== '') {
+    andFilters.push({ preparation_time: { _lte: parseInt(prepTimeFilter.value) } });
+  }
+
+  if (creator !== '') {
+    andFilters.push({ user: { name: { _ilike: `%${creator}%` } } });
+  }
+
+  if (ingredient !== '') {
+    andFilters.push({ recipe_ingredients: { name: { _ilike: `%${ingredient}%` } } });
+  }
+
+  return {
+    limit: limit.value,
+    offset: (page.value - 1) * limit.value,
+    where: { _and: andFilters },
+  };
+});
+
+// Fetch recipes
+const { result: recipesData, error: recipesError, loading: recipesPending, refetch } = useQuery(
+  recipesQuery,
+  filterVariables,
+  { errorPolicy: 'all', fetchPolicy: 'cache-and-network' }
+);
+const recipesRaw = computed(() => recipesData.value?.recipes || []);
+
+const recipeUserIds = computed(() => {
+  const uniqueIds = new Set(
+    recipesRaw.value
+      .map((recipe) => recipe.user_id)
+      .filter((userId) => userId !== null && userId !== undefined)
+  );
+  return Array.from(uniqueIds);
+});
+
+const usersVariables = computed(() => ({
+  userIds: recipeUserIds.value,
+}));
+
+const { result: usersData } = useQuery(
+  usersByIdsQuery,
+  usersVariables,
   {
-    skip: () => !isMounted.value,
     errorPolicy: 'all',
     fetchPolicy: 'cache-and-network',
-    returnPartialData: true
+    enabled: computed(() => recipeUserIds.value.length > 0),
   }
 );
 
-// Computed properties with safe null checks
+const usersById = computed(() => {
+  return (usersData.value?.users || []).reduce((lookup, user) => {
+    lookup[user.id] = user.name;
+    return lookup;
+  }, {});
+});
+
 const recipes = computed(() => {
-  if (!recipesData.value || typeof recipesData.value !== 'object') return [];
-  if (!recipesData.value.recipes || !Array.isArray(recipesData.value.recipes)) return [];
-  return recipesData.value.recipes;
+  return recipesRaw.value.map((recipe) => {
+    const fallbackName = usersById.value[recipe.user_id];
+    if (!recipe.user && fallbackName) {
+      return {
+        ...recipe,
+        user: {
+          id: recipe.user_id,
+          name: fallbackName,
+        },
+      };
+    }
+    return recipe;
+  });
 });
 
-const categories = computed(() => {
-  if (!categoriesData.value || typeof categoriesData.value !== 'object') return [];
-  if (!categoriesData.value.categories || !Array.isArray(categoriesData.value.categories)) return [];
-  return categoriesData.value.categories;
-});
-
+// Combined loading/error
 const pending = computed(() => recipesPending.value || categoriesPending.value);
 const error = computed(() => recipesError.value || categoriesError.value);
 
-// Filters and Display State
-const searchQuery = ref('');
-const selectedCategory = ref(null);
-const prepTimeFilter = ref('');
-const ingredientFilter = ref('');
-const creatorFilter = ref('');
-const sortBy = ref('newest');
-const showingAll = ref(false);
-const featuredCount = 6;
-const showFeatured = ref(true);
-const showTrending = ref(true);
+// Refetch on page change
+watch(page, () => {
+  refetch();
+});
 
-// Get Category Emoji (fallback when image is not available)
-const getCategoryEmoji = (name) => {
-  const emojiMap = {
-    'Italian': '🍝',
-    'Mexican': '🌮',
-    'Asian': '🍜',
-    'Dessert': '🍰',
-    'Breakfast': '🥞',
-    'Lunch': '🥗',
-    'Dinner': '🍽️',
-    'Vegetarian': '🥬',
-    'Vegan': '🌱',
-    'Seafood': '🐟',
-    'Pasta': '🍝',
-    'Pizza': '🍕',
-    'Salad': '🥗',
-    'Soup': '🍲',
-    'Beverage': '🥤',
-  };
-  return emojiMap[name] || '🍳';
-};
+// Reset to first page and refetch when filters change
+watch([searchQuery, selectedCategory, ingredientFilter, creatorFilter, prepTimeFilter], () => {
+  page.value = 1;
+  refetch();
+});
 
-// Handle image loading errors
-const handleImageError = (event) => {
-  // Hide the broken image and show fallback
-  event.target.style.display = 'none';
-};
-
-// Format Date
+// Helper functions
 const formatDate = (dateString) => {
   if (!dateString) return '';
   const date = new Date(dateString);
   const now = new Date();
-  const diffTime = Math.abs(now - date);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
+  const diffDays = Math.ceil(Math.abs(now - date) / (1000 * 60 * 60 * 24));
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
@@ -483,175 +397,60 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
-// Filtered Recipes
-const filteredRecipes = computed(() => {
-  if (!recipes.value || recipes.value.length === 0) return [];
+const handleImageError = (e) => e.target.style.display = 'none';
 
-  let filtered = [...recipes.value];
-
-  // Search by title
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase();
-    filtered = filtered.filter(recipe => 
-      recipe.title.toLowerCase().includes(query)
-    );
-  }
-
-  // Filter by category
-  if (selectedCategory.value) {
-    filtered = filtered.filter(recipe => 
-      recipe.category_id === selectedCategory.value
-    );
-  }
-
-  // Filter by preparation time
-  if (prepTimeFilter.value) {
-    const maxTime = parseInt(prepTimeFilter.value);
-    filtered = filtered.filter(recipe => 
-      recipe.preparation_time && recipe.preparation_time <= maxTime
-    );
-  }
-
-  // Filter by ingredient (search in recipe_ingredients table)
-  if (ingredientFilter.value) {
-    const ingredient = ingredientFilter.value.toLowerCase();
-    filtered = filtered.filter(recipe => {
-      // Check if any ingredient name matches
-      if (recipe.recipe_ingredients && recipe.recipe_ingredients.length > 0) {
-        return recipe.recipe_ingredients.some(ing => 
-          ing.name?.toLowerCase().includes(ingredient)
-        );
-      }
-      // Fallback: search in title/description if no ingredients loaded
-      return recipe.title.toLowerCase().includes(ingredient) ||
-             recipe.description?.toLowerCase().includes(ingredient);
-    });
-  }
-
-  // Filter by creator
-  if (creatorFilter.value) {
-    filtered = filtered.filter(recipe => 
-      recipe.user?.name?.toLowerCase().includes(creatorFilter.value.toLowerCase())
-    );
-  }
-
-  // Sort
-  if (sortBy.value === 'newest') {
-    filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  } else if (sortBy.value === 'oldest') {
-    filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  } else if (sortBy.value === 'title') {
-    filtered.sort((a, b) => a.title.localeCompare(b.title));
-  }
-
-  return filtered;
-});
-
-// Displayed Recipes (featured or all)
-const displayedRecipes = computed(() => {
-  return showingAll.value ? filteredRecipes.value : filteredRecipes.value.slice(0, featuredCount);
-});
-
-// Navigate to Recipe
-const navigateToRecipe = (id) => {
-  navigateTo(`/recipes/${id}`);
+const getRecipeAuthorName = (recipe) => {
+  const userNameFromId = usersById.value[recipe.user_id];
+  if (userNameFromId && userNameFromId.trim() !== '') return userNameFromId;
+  if (recipe.user?.name && recipe.user.name.trim() !== '') return recipe.user.name;
+  return 'Unknown User';
 };
 
-// Scroll to Top
-const scrollToTop = () => {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+const getRecipeCategoryName = (recipe) => {
+  const category = categories.value.find((item) => item.id === recipe.category_id);
+  return category?.name || 'Unknown Category';
 };
 
-// Trending Recipes (based on likes - mock for now, would need likes count from backend)
-const trendingRecipes = computed(() => {
-  return recipes.value.slice(0, 6);
-});
-
-// Featured Recipes
-const featuredRecipes = computed(() => {
-  return recipes.value.slice(0, 6);
-});
-
-// Get real image based on recipe title
-const getRecipeImage = (recipe) => {
-  if (recipe.thumbnail_url) return recipe.thumbnail_url;
-  
-  const title = recipe.title.toLowerCase();
-  
-  // Map recipe keywords to real images
-  if (title.includes('avocado') || title.includes('salad')) {
-    return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('chocolate') || title.includes('cake')) {
-    return 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('pasta')) {
-    return 'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('pizza')) {
-    return 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('burger')) {
-    return 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('sushi')) {
-    return 'https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?auto=format&fit=crop&w=800&q=80';
-  }
-  if (title.includes('soup')) {
-    return 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=800&q=80';
-  }
-  
-  // Default food image
-  return 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=800&q=80';
-};
-
-// Clear Filters
 const clearFilters = () => {
   searchQuery.value = '';
   selectedCategory.value = null;
   prepTimeFilter.value = '';
   ingredientFilter.value = '';
   creatorFilter.value = '';
-  sortBy.value = 'newest';
-  showingAll.value = false;
+  page.value = 1;
+  refetch();
+  scrollToRecipes();
 };
 
-// Scroll to Filters Section
-const scrollToFilters = () => {
-  if (filtersSection.value) {
-    filtersSection.value.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-};
-
-// Scroll to Results Section
-const scrollToResults = () => {
-  if (recipesSection.value) {
+const scrollToRecipes = () => {
+  if (process.client && recipesSection.value) {
     recipesSection.value.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 };
 
-// Set mounted flag when component is ready (client-side only)
-onMounted(() => {
-  if (process.client) {
-    // Small delay to ensure everything is initialized
-    setTimeout(() => {
-      isMounted.value = true;
-    }, 100);
-  }
-});
+const applyFilters = () => {
+  page.value = 1;
+  refetch();
+  scrollToRecipes();
+};
+
+const handleSearchSubmit = () => {
+  applyFilters();
+};
 </script>
 
 <style scoped>
 .line-clamp-1 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

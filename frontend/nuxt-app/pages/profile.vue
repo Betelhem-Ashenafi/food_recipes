@@ -54,7 +54,7 @@
                 class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all cursor-pointer group relative"
                 @click="navigateToRecipe(recipe.id)"
               >
-                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                <img :src="getRecipeImage(recipe)" :alt="recipe.title" class="w-full h-48 object-cover" />
                 <div class="p-4">
                   <div class="flex items-center justify-between mb-2">
                     <h3 class="text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">{{ recipe.title }}</h3>
@@ -102,7 +102,7 @@
                 @click="navigateToRecipe(recipe.id)"
                 class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all cursor-pointer"
               >
-                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                <img :src="getRecipeImage(recipe)" :alt="recipe.title" class="w-full h-48 object-cover" />
                 <div class="p-4">
                   <h3 class="text-xl font-bold text-white mb-2">{{ recipe.title }}</h3>
                   <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
@@ -115,24 +115,90 @@
           <!-- Purchased -->
           <div v-if="activeTab === 'purchased'">
             <h2 class="text-2xl font-bold text-white mb-6">Purchased Recipes</h2>
-            <div v-if="purchasedRecipes && purchasedRecipes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div
-                v-for="recipe in purchasedRecipes"
-                :key="recipe.id"
-                @click="navigateToRecipe(recipe.id)"
-                class="bg-white/10 backdrop-blur-lg border border-emerald-400/50 rounded-2xl overflow-hidden hover:bg-white/15 transition-all cursor-pointer"
+            <div class="flex gap-2 mb-6">
+              <button
+                v-for="tab in purchasedTabs"
+                :key="tab.id"
+                @click="purchasedTab = tab.id"
+                :class="[
+                  'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
+                  purchasedTab === tab.id
+                    ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/60'
+                    : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10'
+                ]"
               >
-                <img :src="recipe.thumbnail_url || getDefaultImage(recipe.title)" :alt="recipe.title" class="w-full h-48 object-cover" />
-                <div class="p-4">
-                  <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-xl font-bold text-white">{{ recipe.title }}</h3>
-                    <span class="text-emerald-400 text-xs font-bold">💎 Purchased</span>
+                {{ tab.label }}
+              </button>
+            </div>
+
+            <div v-if="purchasedTab === 'success' && purchasesByStatus.success.length > 0" class="mb-8">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div
+                  v-for="recipe in purchasesByStatus.success"
+                  :key="recipe.id"
+                  @click="navigateToRecipe(recipe.id)"
+                  class="bg-white/10 backdrop-blur-lg border border-emerald-400/50 rounded-2xl overflow-hidden hover:bg-white/15 transition-all cursor-pointer"
+                >
+                  <img :src="getRecipeImage(recipe)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                  <div class="p-4">
+                    <div class="flex items-center justify-between mb-2">
+                      <h3 class="text-xl font-bold text-white">{{ recipe.title }}</h3>
+                      <span class="text-emerald-400 text-xs font-bold">💎 Purchased</span>
+                    </div>
+                    <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
                   </div>
-                  <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
                 </div>
               </div>
             </div>
-            <p v-else class="text-gray-400 text-center py-8">You haven't purchased any recipes yet.</p>
+
+            <div v-if="purchasedTab === 'pending' && purchasesByStatus.pending.length > 0" class="mb-8">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div
+                  v-for="recipe in purchasesByStatus.pending"
+                  :key="`pending-${recipe.id}`"
+                  class="bg-white/10 backdrop-blur-lg border border-yellow-400/50 rounded-2xl overflow-hidden"
+                >
+                  <img :src="getRecipeImage(recipe)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                  <div class="p-4">
+                    <div class="flex items-center justify-between mb-2">
+                      <h3 class="text-xl font-bold text-white">{{ recipe.title }}</h3>
+                      <span class="text-yellow-300 text-xs font-bold">⏳ Pending</span>
+                    </div>
+                    <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="purchasedTab === 'failed' && purchasesByStatus.failed.length > 0" class="mb-8">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div
+                  v-for="recipe in purchasesByStatus.failed"
+                  :key="`failed-${recipe.id}`"
+                  class="bg-white/10 backdrop-blur-lg border border-red-400/50 rounded-2xl overflow-hidden"
+                >
+                  <img :src="getRecipeImage(recipe)" :alt="recipe.title" class="w-full h-48 object-cover" />
+                  <div class="p-4">
+                    <div class="flex items-center justify-between mb-2">
+                      <h3 class="text-xl font-bold text-white">{{ recipe.title }}</h3>
+                      <span class="text-red-300 text-xs font-bold">❌ Failed</span>
+                    </div>
+                    <p class="text-gray-300 text-sm line-clamp-2">{{ recipe.description }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p
+              v-if="
+                (purchasedTab === 'success' && purchasesByStatus.success.length === 0) ||
+                (purchasedTab === 'pending' && purchasesByStatus.pending.length === 0) ||
+                (purchasedTab === 'failed' && purchasesByStatus.failed.length === 0)
+              "
+              class="text-gray-400 text-center py-8"
+            >
+              No recipes in this status yet.
+            </p>
           </div>
         </div>
       </div>
@@ -142,12 +208,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { useQuery } from '@vue/apollo-composable';
+import { useApolloClient, useQuery } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
 import { jwtDecode } from 'jwt-decode';
 import { useRouter } from 'vue-router';
 
 const router = useRouter();
+const { client } = useApolloClient();
 
 // Get user from JWT - always return safe object structure
 const token = useCookie('auth_token');
@@ -210,14 +277,64 @@ const userId = computed(() => {
 // Tabs
 const activeTab = ref('recipes');
 
-// Get API URL from runtime config
-const config = useRuntimeConfig();
-const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
 const tabs = [
   { id: 'recipes', label: 'My Recipes' },
   { id: 'bookmarked', label: 'Bookmarked' },
   { id: 'purchased', label: 'Purchased' }
 ];
+
+const purchasedTab = ref('success');
+
+const purchasedTabs = [
+  { id: 'success', label: 'Success' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'failed', label: 'Failed' }
+];
+
+const BOOKMARKED_RECIPES_QUERY = gql`
+  query GetBookmarkedRecipes($userId: Int!) {
+    bookmarks(where: { user_id: { _eq: $userId } }, order_by: { created_at: desc }) {
+      recipe {
+        id
+        title
+        description
+        price
+        preparation_time
+        created_at
+        recipe_images(order_by: { id: asc }, limit: 1) {
+          url
+        }
+      }
+    }
+  }
+`;
+
+const PURCHASES_BY_STATUS_QUERY = gql`
+  query GetPurchasesByStatus($userId: Int!) {
+    purchases(where: { user_id: { _eq: $userId } }, order_by: { created_at: desc }) {
+      status
+      recipe {
+        id
+        title
+        description
+        price
+        preparation_time
+        created_at
+        recipe_images(order_by: { id: asc }, limit: 1) {
+          url
+        }
+      }
+    }
+  }
+`;
+
+const DELETE_RECIPE_MUTATION = gql`
+  mutation DeleteRecipe($id: Int!) {
+    delete_recipes_by_pk(id: $id) {
+      id
+    }
+  }
+`;
 
 // GraphQL Query for User's Recipes (using Vue Apollo with Hasura)
 const myRecipesQuery = gql`
@@ -226,10 +343,12 @@ const myRecipesQuery = gql`
       id
       title
       description
-      thumbnail_url
       price
       preparation_time
       created_at
+      recipe_images(order_by: { id: asc }, limit: 1) {
+        url
+      }
     }
   }
 `;
@@ -267,49 +386,56 @@ const fetchBookmarkedRecipes = async () => {
     return;
   }
   try {
-    const response = await fetch(`${getApiUrl()}/users/${userId.value}/bookmarks`, {
-      headers: { 'Authorization': `Bearer ${token.value}` }
+    const result = await client.query({
+      query: BOOKMARKED_RECIPES_QUERY,
+      variables: { userId: userId.value },
+      fetchPolicy: 'network-only'
     });
-    if (response.ok) {
-      const data = await response.json();
-      bookmarkedRecipes.value = data || [];
-    } else if (response.status === 401) {
-      console.warn('⚠️ Token invalid for bookmarks - please log in again');
-      token.value = null;
-      bookmarkedRecipes.value = [];
-    } else {
-      bookmarkedRecipes.value = [];
-    }
+    const bookmarks = result?.data?.bookmarks || [];
+    bookmarkedRecipes.value = bookmarks.map((item) => item.recipe).filter(Boolean);
   } catch (err) {
     console.error('Error fetching bookmarks:', err);
     bookmarkedRecipes.value = [];
   }
 };
 
-// Fetch Purchased Recipes
-const purchasedRecipes = ref([]);
+// Fetch Purchased Recipes (by status) from GraphQL
+const purchasesByStatus = ref({ success: [], pending: [], failed: [] });
 const fetchPurchasedRecipes = async () => {
   if (!token.value || !userId.value) {
-    purchasedRecipes.value = [];
+    purchasesByStatus.value = { success: [], pending: [], failed: [] };
     return;
   }
   try {
-    const response = await fetch(`${getApiUrl()}/users/${userId.value}/purchases`, {
-      headers: { 'Authorization': `Bearer ${token.value}` }
+    const result = await client.query({
+      query: PURCHASES_BY_STATUS_QUERY,
+      variables: { userId: userId.value },
+      fetchPolicy: 'network-only'
     });
-    if (response.ok) {
-      const data = await response.json();
-      purchasedRecipes.value = data || [];
-    } else if (response.status === 401) {
-      console.warn('⚠️ Token invalid for purchases - please log in again');
-      token.value = null;
-      purchasedRecipes.value = [];
-    } else {
-      purchasedRecipes.value = [];
-    }
+    const purchases = result?.data?.purchases || [];
+    const statusPriority = { success: 3, pending: 2, failed: 1 };
+    const byRecipe = new Map();
+
+    purchases.forEach((p) => {
+      if (!p?.recipe) return;
+      const status = p.status || 'pending';
+      const current = byRecipe.get(p.recipe.id);
+      if (!current || statusPriority[status] > statusPriority[current.status]) {
+        byRecipe.set(p.recipe.id, { status, recipe: p.recipe });
+      }
+    });
+
+    const grouped = { success: [], pending: [], failed: [] };
+    byRecipe.forEach((value) => {
+      if (value.status === 'success') grouped.success.push(value.recipe);
+      else if (value.status === 'failed') grouped.failed.push(value.recipe);
+      else grouped.pending.push(value.recipe);
+    });
+
+    purchasesByStatus.value = grouped;
   } catch (err) {
     console.error('Error fetching purchases:', err);
-    purchasedRecipes.value = [];
+    purchasesByStatus.value = { success: [], pending: [], failed: [] };
   }
 };
 
@@ -328,6 +454,10 @@ const getDefaultImage = (title) => {
     return 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=800&q=80';
   }
   return 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=800&q=80';
+};
+
+const getRecipeImage = (recipe) => {
+  return recipe?.recipe_images?.[0]?.url || getDefaultImage(recipe?.title);
 };
 
 // Edit Recipe
@@ -353,26 +483,13 @@ const deleteRecipe = async (recipeId) => {
   
   try {
     console.log(`[DELETE] Deleting recipe ${recipeId}`);
-    const response = await fetch(`${getApiUrl()}/recipes/${recipeId}`, {
-      method: 'DELETE',
-      headers: { 
-        'Authorization': `Bearer ${token.value}`,
-        'Content-Type': 'application/json'
-      }
+    await client.mutate({
+      mutation: DELETE_RECIPE_MUTATION,
+      variables: { id: recipeId }
     });
-    
-    console.log(`[DELETE] Response status: ${response.status}`);
-    
-    if (response.ok) {
-      console.log(`[DELETE] Recipe ${recipeId} deleted successfully`);
-      // Refetch recipes to update the list
-      await fetchMyRecipes();
-      alert('Recipe deleted successfully!');
-    } else {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[DELETE] Error response:', errorData);
-      alert(errorData.error || 'Failed to delete recipe');
-    }
+    console.log(`[DELETE] Recipe ${recipeId} deleted successfully`);
+    await fetchMyRecipes();
+    alert('Recipe deleted successfully!');
   } catch (err) {
     console.error('[DELETE] Exception:', err);
     alert('Failed to delete recipe. Please check if backend is running.');

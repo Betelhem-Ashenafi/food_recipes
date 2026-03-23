@@ -2,512 +2,381 @@ package handlers
 
 import (
 	"bytes"
-	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	graphql "github.com/hasura/go-graphql-client"
+	"github.com/jmoiron/sqlx"
 )
 
-// userIDKeyType is a custom type for context keys to avoid collisions
-type userIDKeyType string
+var ErrNotFound = errors.New("not found")
 
-// userIDKey is the key used to store/retrieve user ID from context
-var userIDKey = userIDKeyType("userID")
+// ==================== Configuration & Helpers ====================
 
-// ChapaConfig holds configuration for Chapa API
 type ChapaConfig struct {
 	SecretKey string
 	BaseURL   string
 }
 
-var Chapa = ChapaConfig{
-	SecretKey: getEnv("CHAPA_SECRET_KEY", "CHASECK_TEST-LR1J8py5LqhoMlJdtVT5piJnWtJ66RZk"),
-	BaseURL:   getEnv("CHAPA_BASE_URL", "https://api.chapa.co/v1"),
+func getChapaConfig() ChapaConfig {
+	return ChapaConfig{
+		SecretKey: strings.TrimSpace(getEnv("CHAPA_SECRET_KEY", "")),
+		BaseURL:   strings.TrimSuffix(getEnv("CHAPA_BASE_URL", "https://api.chapa.co/v1"), "/"),
+	}
 }
 
 func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
 	return fallback
 }
 
-// InitializePaymentRequest is the payload from our frontend
-type InitializePaymentRequest struct {
-	Amount    string `json:"amount"`
-	Email     string `json:"email"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	RecipeID  int    `json:"recipe_id"` // To track what they are buying
+// URLBuilder constructs URLs from environment and request context.
+type URLBuilder struct {
+	apiURL      string
+	frontendURL string
+	req         *http.Request // optional, used to derive defaults
 }
 
-// ChapaInitializeRequest is the payload sent to Chapa
-type ChapaInitializeRequest struct {
-	Amount      string `json:"amount"`
-	Currency    string `json:"currency"`
-	Email       string `json:"email"`
-	FirstName   string `json:"first_name"`
-	LastName    string `json:"last_name"`
-	TxRef       string `json:"tx_ref"`
-	CallbackURL string `json:"callback_url"`
-	ReturnURL   string `json:"return_url"`
+func NewURLBuilder(r *http.Request) *URLBuilder {
+	apiURL := strings.TrimSuffix(getEnv("API_URL", ""), "/")
+	if apiURL == "" {
+		apiURL = getRequestBaseURL(r)
+	}
+	frontendURL := strings.TrimSuffix(getEnv("FRONTEND_URL", ""), "/")
+	if frontendURL == "" {
+		frontendURL = getFrontendBaseURL(r)
+		if frontendURL == "" {
+			frontendURL = "http://localhost:3000" // fallback for dev
+		}
+	}
+	return &URLBuilder{
+		apiURL:      apiURL,
+		frontendURL: frontendURL,
+		req:         r,
+	}
 }
 
-// ChapaInitializeResponse is the response from Chapa
-type ChapaInitializeResponse struct {
-	Message interface{} `json:"message"` // Can be string or object
-	Status  string      `json:"status"`
-	Data    struct {
-		CheckoutURL string `json:"checkout_url"`
-	} `json:"data"`
+func (b *URLBuilder) CallbackURL() string {
+	if cb := strings.TrimSpace(getEnv("PAYMENT_CALLBACK_URL", "")); cb != "" {
+		return cb
+	}
+	if b.apiURL != "" {
+		return b.apiURL + "/hasura/payment/callback"
+	}
+	return ""
 }
 
-// InitializePaymentHandler starts the payment process
-func InitializePaymentHandler(w http.ResponseWriter, r *http.Request) {
-	// Debug: Print Chapa.SecretKey to verify .env loading
-	log.Println("[PAYMENT DEBUG] Chapa.SecretKey:", Chapa.SecretKey)
-	var req InitializePaymentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
+func (b *URLBuilder) ReturnURL(txRef string, recipeID int) string {
+	q := url.Values{}
+	q.Set("tx_ref", txRef)
+	q.Set("recipe_id", strconv.Itoa(recipeID))
+	return fmt.Sprintf("%s/payment/success?%s", b.frontendURL, q.Encode())
+}
+
+func (b *URLBuilder) ConfirmRedirectURL(recipeID int, txRef, status, message string) string {
+	q := url.Values{}
+	q.Set("recipe_id", strconv.Itoa(recipeID))
+	q.Set("tx_ref", txRef)
+	q.Set("status", status)
+	if message != "" {
+		q.Set("message", message)
+	}
+	return fmt.Sprintf("%s/payment/success?%s", b.frontendURL, q.Encode())
+}
+
+func getRequestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := "http"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+func getFrontendBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		return strings.TrimSuffix(origin, "/")
+	}
+	return ""
+}
+
+// normalizePurchaseStatus maps various status strings to canonical values.
+func normalizePurchaseStatus(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "success", "completed", "paid":
+		return "success"
+	case "pending", "processing", "created", "initiated":
+		return "pending"
+	default:
+		return "failed"
+	}
+}
+
+// parseHasuraInput extracts the action input from a Hasura Action request.
+// It supports both direct {"input": {...}} and wrapped {"input": {"arg": {...}}} formats.
+func parseHasuraInput[T any](body []byte) (T, map[string]interface{}, error) {
+	var zero T
+	var envelope struct {
+		Input            json.RawMessage        `json:"input"`
+		SessionVariables map[string]interface{} `json:"session_variables"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Input) == 0 {
+		return zero, nil, fmt.Errorf("invalid hasura action payload")
 	}
 
-	// Validate required fields
-	if req.Amount == "" || req.Email == "" || req.FirstName == "" || req.LastName == "" || req.RecipeID == 0 {
-		http.Error(w, "Missing required fields: amount, email, first_name, last_name, recipe_id", http.StatusBadRequest)
-		return
+	// Try wrapped format: {"arg": {...}}
+	var argWrapper struct {
+		Arg json.RawMessage `json:"arg"`
+	}
+	if err := json.Unmarshal(envelope.Input, &argWrapper); err == nil && len(argWrapper.Arg) > 0 && string(argWrapper.Arg) != "null" {
+		var fromArg T
+		if err := json.Unmarshal(argWrapper.Arg, &fromArg); err == nil {
+			return fromArg, envelope.SessionVariables, nil
+		}
 	}
 
-	// Validate email format (basic check)
-	if !strings.Contains(req.Email, "@") {
-		http.Error(w, "Invalid email format", http.StatusBadRequest)
-		return
+	// Try direct format
+	var direct T
+	if err := json.Unmarshal(envelope.Input, &direct); err == nil {
+		return direct, envelope.SessionVariables, nil
 	}
 
-	// Extract User ID from context (payment initialization requires auth)
-	userID, ok := r.Context().Value(userIDKey).(int)
+	return zero, nil, fmt.Errorf("invalid hasura action input")
+}
+
+// getUserIDFromSession extracts the user ID from Hasura session variables.
+func getUserIDFromSession(session map[string]interface{}) (int, error) {
+	raw, ok := session["x-hasura-user-id"]
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
+		return 0, fmt.Errorf("missing x-hasura-user-id")
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int(v), nil
+	case string:
+		return strconv.Atoi(v)
+	default:
+		return 0, fmt.Errorf("invalid user id type")
+	}
+}
+
+// ==================== Service Layer ====================
+
+type PaymentService struct {
+	db         *sqlx.DB
+	chapaCfg   ChapaConfig
+	httpClient *http.Client
+	logger     *log.Logger
+}
+
+func NewPaymentService(db *sqlx.DB, chapaCfg ChapaConfig, logger *log.Logger) *PaymentService {
+	if logger == nil {
+		logger = log.New(os.Stderr, "[payment] ", log.LstdFlags)
+	}
+	return &PaymentService{
+		db:         db,
+		chapaCfg:   chapaCfg,
+		httpClient: &http.Client{Timeout: 20 * time.Second},
+		logger:     logger,
+	}
+}
+
+// ==================== Core Business Logic ====================
+
+// InitializePayment starts a new payment or resumes an existing pending one.
+func (s *PaymentService) InitializePayment(userID int, req *InitializePaymentRequest, urlBuilder *URLBuilder) (*InitializeResult, error) {
+	// Validate input
+	if err := s.validateInitializeRequest(userID, req); err != nil {
+		return nil, err
 	}
 
-	// Generate a unique transaction reference
-	txRef := fmt.Sprintf("tx-%d-%d", req.RecipeID, time.Now().Unix())
-
-	// Create a pending purchase record so we can track it
-	amountFloat, parseErr := strconv.ParseFloat(req.Amount, 64)
-	if parseErr == nil {
-		_, dbErr := DB.Exec(`
-			INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (chapa_tx_ref) DO UPDATE SET status = 'pending'
-		`, userID, req.RecipeID, amountFloat, "ETB", txRef, "pending")
-
-		if dbErr != nil {
-			fmt.Printf("Warning: Failed to create pending purchase record: %v\n", dbErr)
-			// Continue anyway - payment can still proceed
-		} else {
-			fmt.Printf("Created pending purchase record: user_id=%d, recipe_id=%d, tx_ref=%s\n", userID, req.RecipeID, txRef)
-		}
+	// Check if already purchased
+	if existing, _ := s.getSuccessfulPurchase(userID, req.RecipeID); existing != nil {
+		return &InitializeResult{
+			Status:  "success",
+			Message: "Recipe already purchased",
+			TxRef:   existing.TxRef,
+		}, nil
 	}
 
-	// Get API URL for callback (backend URL)
-	apiURL := getEnv("API_URL", "http://localhost:8081")
-	apiURL = strings.TrimSuffix(apiURL, "/")
-
-	// Get Frontend URL for return URL
-	// Try multiple methods to get the frontend URL
-	frontendURL := getEnv("FRONTEND_URL", "")
-
-	// If not set in env, try to get from request Origin header
-	if frontendURL == "" {
-		origin := r.Header.Get("Origin")
-		if origin != "" {
-			frontendURL = origin
-			fmt.Printf("[PAYMENT] Using Origin header: %s\n", frontendURL)
-		}
+	// Check for pending purchase to resume
+	if pending, _ := s.getPendingPurchase(userID, req.RecipeID); pending != nil && pending.CheckoutURL != "" {
+		return &InitializeResult{
+			Status:      "pending",
+			Resumed:     true,
+			CheckoutURL: pending.CheckoutURL,
+			TxRef:       pending.TxRef,
+		}, nil
 	}
 
-	// If still not set, try Referer header
-	if frontendURL == "" {
-		referer := r.Header.Get("Referer")
-		if referer != "" {
-			// Extract base URL from referer
-			if strings.HasPrefix(referer, "http://") || strings.HasPrefix(referer, "https://") {
-				// Parse URL to get just the origin
-				parts := strings.Split(referer, "/")
-				if len(parts) >= 3 {
-					frontendURL = strings.Join(parts[0:3], "/")
-					fmt.Printf("[PAYMENT] Using Referer header: %s\n", frontendURL)
-				}
-			}
-		}
+	// Create or update pending purchase record
+	txRef := fmt.Sprintf("tx-%d-%d", req.RecipeID, time.Now().UnixNano())
+	purchaseID, err := s.createPendingPurchase(userID, req, txRef)
+	if err != nil {
+		return nil, err
 	}
 
-	// Last resort: use default (but this should rarely happen)
-	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
-		fmt.Printf("[PAYMENT] WARNING: Using default localhost:3000 - FRONTEND_URL not set and no headers available\n")
+	// Prepare Chapa request
+	chapaReq := &ChapaInitializeRequest{
+		Amount:    req.Amount,
+		Currency:  "ETB",
+		Email:     req.Email,
+		FirstName: firstNameFromUserName(req.UserName),
+		LastName:  "",
+		TxRef:     txRef,
+		ReturnURL: urlBuilder.ReturnURL(txRef, req.RecipeID),
+	}
+	if cb := urlBuilder.CallbackURL(); cb != "" {
+		chapaReq.CallbackURL = cb
 	}
 
-	frontendURL = strings.TrimSuffix(frontendURL, "/")
+	// Call Chapa API
+	resp, err := s.callChapaInitialize(chapaReq)
+	if err != nil {
+		return nil, err
+	}
 
-	// Debug: Log the frontend URL being used
-	fmt.Printf("[PAYMENT] FRONTEND_URL from env: %s\n", os.Getenv("FRONTEND_URL"))
-	fmt.Printf("[PAYMENT] Origin header: %s\n", r.Header.Get("Origin"))
-	fmt.Printf("[PAYMENT] Referer header: %s\n", r.Header.Get("Referer"))
-	fmt.Printf("[PAYMENT] Using frontendURL: %s\n", frontendURL)
+	// Update purchase with checkout URL and provider payment ID
+	if err := s.updatePurchaseWithProviderData(purchaseID, resp.Data.CheckoutURL); err != nil {
+		s.logger.Printf("failed to update purchase with provider data: %v", err)
+		// non-critical, continue
+	}
 
-	// Prepare request to Chapa
-	returnURL := fmt.Sprintf("%s/payment/success?recipe_id=%d&tx_ref=%s", frontendURL, req.RecipeID, txRef)
-	fmt.Printf("[PAYMENT] ReturnURL being sent to Chapa: %s\n", returnURL)
-
-	chapaReq := ChapaInitializeRequest{
-		Amount:      req.Amount,
-		Currency:    "ETB",
-		Email:       req.Email,
-		FirstName:   req.FirstName,
-		LastName:    req.LastName,
+	return &InitializeResult{
+		Status:      "success",
+		CheckoutURL: resp.Data.CheckoutURL,
 		TxRef:       txRef,
-		CallbackURL: fmt.Sprintf("%s/payment/callback", apiURL), // Webhook (optional)
-		ReturnURL:   returnURL,                                  // Frontend success page with recipe_id
-	}
-
-	jsonData, _ := json.Marshal(chapaReq)
-
-	// Send POST request to Chapa
-	client := &http.Client{}
-	reqChapa, _ := http.NewRequest("POST", Chapa.BaseURL+"/transaction/initialize", bytes.NewBuffer(jsonData))
-	reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-	reqChapa.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(reqChapa)
-	if err != nil {
-		http.Error(w, "Failed to connect to payment provider", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	var chapaResp ChapaInitializeResponse
-	if err := json.Unmarshal(body, &chapaResp); err != nil {
-		http.Error(w, "Failed to parse payment provider response", http.StatusInternalServerError)
-		return
-	}
-
-	if chapaResp.Status != "success" {
-		msg := fmt.Sprintf("%v", chapaResp.Message)
-		http.Error(w, "Payment initialization failed: "+msg, http.StatusBadRequest)
-		return
-	}
-
-	// Return the checkout URL to the frontend
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"checkout_url": chapaResp.Data.CheckoutURL,
-		"tx_ref":       txRef,
-	})
+		Resumed:     false,
+	}, nil
 }
 
-// VerifyPaymentHandler checks if a payment was successful
-// Can verify by tx_ref OR by recipe_id (for cases where Chapa doesn't return tx_ref)
-func VerifyPaymentHandler(w http.ResponseWriter, r *http.Request) {
-	txRef := r.URL.Query().Get("tx_ref")
-	recipeIDStr := r.URL.Query().Get("recipe_id")
-
-	// If no tx_ref but recipe_id is provided, try to verify by checking recent purchases
-	// and also try to verify with Chapa using recent tx_ref patterns
-	if txRef == "" && recipeIDStr != "" {
-		userID, ok := r.Context().Value(userIDKey).(int)
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		recipeID, err := strconv.Atoi(recipeIDStr)
+// VerifyPayment checks payment status with Chapa and updates the database.
+func (s *PaymentService) VerifyPayment(userID int, txRef string, recipeID int) (*VerifyResult, error) {
+	// If only recipeID is given, try to find the latest transaction for that user+recipe
+	if txRef == "" && recipeID > 0 {
+		purchases, err := s.findPurchasesByUserAndRecipe(userID, recipeID)
 		if err != nil {
-			http.Error(w, "Invalid recipe_id", http.StatusBadRequest)
-			return
+			return nil, ErrNotFound
 		}
-
-		// First, check if user has a recent successful purchase for this recipe (within last 30 minutes)
-		var count int
-		err = DB.Get(&count, `
-			SELECT COUNT(*) FROM purchases
-			WHERE user_id = $1 AND recipe_id = $2 AND status = 'success'
-			AND created_at > NOW() - INTERVAL '30 minutes'
-		`, userID, recipeID)
-
-		if err != nil {
-			fmt.Printf("Error checking purchase: %v\n", err)
-			http.Error(w, "Failed to check purchase", http.StatusInternalServerError)
-			return
-		}
-
-		if count > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{
-				"status":  "success",
-				"message": "Purchase verified by recipe_id",
-			})
-			return
-		}
-
-		// Check for pending purchases and try to verify them with Chapa
-		var pendingTxRef string
-		err = DB.Get(&pendingTxRef, `
-			SELECT chapa_tx_ref FROM purchases
-			WHERE user_id = $1 AND recipe_id = $2 AND status = 'pending'
-			AND created_at > NOW() - INTERVAL '30 minutes'
-			ORDER BY created_at DESC
-			LIMIT 1
-		`, userID, recipeID)
-
-		fmt.Printf("Checking for pending purchases: user_id=%d, recipe_id=%d, found_tx_ref=%s, error=%v\n", userID, recipeID, pendingTxRef, err)
-
-		if err == nil && pendingTxRef != "" {
-			fmt.Printf("Found pending purchase with tx_ref: %s\n", pendingTxRef)
-
-			// Since user is verifying (came from payment success page), assume payment was successful
-			// Mark the pending purchase as success immediately
-			// This is safe because if they're on the success page, Chapa redirected them there after successful payment
-			fmt.Printf("Marking pending purchase as success (user came from payment success page)...\n")
-			result, updateErr := DB.Exec(`
-				UPDATE purchases SET status = 'success'
-				WHERE chapa_tx_ref = $1 AND user_id = $2 AND recipe_id = $3 AND status = 'pending'
-			`, pendingTxRef, userID, recipeID)
-
-			if updateErr != nil {
-				fmt.Printf("Failed to update purchase: %v\n", updateErr)
-			} else {
-				rowsAffected, _ := result.RowsAffected()
-				fmt.Printf("Purchase marked as success: tx_ref=%s, rows_affected=%d\n", pendingTxRef, rowsAffected)
-
-				if rowsAffected > 0 {
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]string{
-						"status":  "success",
-						"message": "Payment verified and recorded",
-					})
-					return
-				}
-			}
-
-			// Also try to verify with Chapa as backup (but don't wait for it)
-			go func() {
-				client := &http.Client{Timeout: 10 * time.Second}
-				reqChapa, _ := http.NewRequest("GET", Chapa.BaseURL+"/transaction/verify/"+pendingTxRef, nil)
-				reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-
-				resp, err := client.Do(reqChapa)
-				if err == nil && resp.StatusCode == 200 {
-					body, _ := io.ReadAll(resp.Body)
-					resp.Body.Close()
-
-					var verifyResp struct {
-						Status  string `json:"status"`
-						Message string `json:"message"`
-						Data    struct {
-							Status string  `json:"status"`
-							Amount float64 `json:"amount"`
-						} `json:"data"`
-					}
-					json.Unmarshal(body, &verifyResp)
-
-					if verifyResp.Status == "success" && verifyResp.Data.Status == "success" {
-						fmt.Printf("Chapa verification confirmed: tx_ref=%s\n", pendingTxRef)
-					} else {
-						fmt.Printf("Chapa verification status: Status=%s, Data.Status=%s\n", verifyResp.Status, verifyResp.Data.Status)
-					}
-				}
-			}()
-		} else {
-			fmt.Printf("No pending purchase found for user_id=%d, recipe_id=%d (error: %v)\n", userID, recipeID, err)
-		}
-
-		// If no purchase found, try to verify with Chapa by trying recent tx_ref patterns
-		// Try tx_refs from the last 5 minutes (300 seconds)
-		currentTime := time.Now().Unix()
-		for i := 0; i < 10; i++ {
-			// Try timestamps from current time going back
-			tryTimestamp := currentTime - int64(i*30) // Try every 30 seconds
-			tryTxRef := fmt.Sprintf("tx-%d-%d", recipeID, tryTimestamp)
-
-			// Try to verify this tx_ref with Chapa
-			client := &http.Client{Timeout: 5 * time.Second}
-			reqChapa, _ := http.NewRequest("GET", Chapa.BaseURL+"/transaction/verify/"+tryTxRef, nil)
-			reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-
-			resp, err := client.Do(reqChapa)
-			if err == nil && resp.StatusCode == 200 {
-				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-
-				var verifyResp struct {
-					Status  string `json:"status"`
-					Message string `json:"message"`
-					Data    struct {
-						Status string  `json:"status"`
-						Amount float64 `json:"amount"`
-					} `json:"data"`
-				}
-				json.Unmarshal(body, &verifyResp)
-
-				// If payment is successful, record it
-				if verifyResp.Status == "success" && verifyResp.Data.Status == "success" {
-					// Record the purchase
-					_, err := DB.Exec(`
-						INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status)
-						VALUES ($1, $2, $3, $4, $5, $6)
-						ON CONFLICT (chapa_tx_ref) DO UPDATE SET status = 'success'
-					`, userID, recipeID, verifyResp.Data.Amount, "ETB", tryTxRef, "success")
-
-					if err != nil {
-						fmt.Printf("Failed to record purchase: %v\n", err)
-					} else {
-						fmt.Printf("Purchase recorded for recipe %d, user %d\n", recipeID, userID)
-					}
-
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]string{
-						"status":  "success",
-						"message": "Payment verified and recorded",
-					})
-					return
-				}
+		// If there's a successful one, return it immediately
+		for _, p := range purchases {
+			if p.Status == "success" {
+				return &VerifyResult{
+					Status:  "success",
+					Message: "Payment already verified",
+					TxRef:   p.TxRef,
+				}, nil
 			}
 		}
-
-		// If no purchase found and Chapa verification failed, return pending
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "pending",
-			"message": "Purchase not found or still processing",
-		})
-		return
+		// Otherwise use the most recent txRef
+		if len(purchases) > 0 && purchases[0].TxRef != "" {
+			txRef = purchases[0].TxRef
+		}
 	}
-
 	if txRef == "" {
-		http.Error(w, "Transaction reference or recipe_id required", http.StatusBadRequest)
-		return
+		return nil, fmt.Errorf("tx_ref or recipe_id is required")
 	}
 
-	// Call Chapa Verify API
-	client := &http.Client{}
-	reqChapa, _ := http.NewRequest("GET", Chapa.BaseURL+"/transaction/verify/"+txRef, nil)
-	reqChapa.Header.Set("Authorization", "Bearer "+Chapa.SecretKey)
-
-	resp, err := client.Do(reqChapa)
+	// Verify with Chapa
+	status, amount, message, err := s.verifyChapaTransaction(txRef)
 	if err != nil {
-		http.Error(w, "Failed to verify payment", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-	defer resp.Body.Close()
+	s.logger.Printf("[PAYMENT VERIFY] tx_ref=%s recipe_id=%d chapa_status=%s amount=%.2f", txRef, recipeID, status, amount)
 
-	body, _ := io.ReadAll(resp.Body)
-
-	// Parse response
-	var verifyResp struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Status string  `json:"status"`
-			Amount float64 `json:"amount"`
-		} `json:"data"`
+	// If recipeID not provided, try to parse from txRef
+	if recipeID == 0 {
+		if parsed, err := parseRecipeIDFromTxRef(txRef); err == nil {
+			recipeID = parsed
+		}
 	}
-	json.Unmarshal(body, &verifyResp)
-
-	if verifyResp.Status == "success" && verifyResp.Data.Status == "success" {
-		// Extract User ID from context
-		userID, ok := r.Context().Value(userIDKey).(int)
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Extract Recipe ID from txRef
-		var recipeID int
-		var timestamp int64
-		fmt.Sscanf(txRef, "tx-%d-%d", &recipeID, &timestamp)
-
-		// Use GraphQL Client to fetch recipe details (Satisfying "must use go graphql client")
-		hasuraURL := getEnv("HASURA_URL", "http://localhost:8080/v1/graphql")
-		hasuraAdminSecret := getEnv("HASURA_GRAPHQL_ADMIN_SECRET", "myhasurasecret")
-
-		httpClient := &http.Client{
-			Transport: &headerTransport{
-				Transport: http.DefaultTransport,
-				Headers: map[string]string{
-					"X-Hasura-Admin-Secret": hasuraAdminSecret,
-				},
-			},
-		}
-		gqlClient := graphql.NewClient(hasuraURL, httpClient)
-
-		var query struct {
-			RecipesByPk struct {
-				Price float64
-			} `graphql:"recipes_by_pk(id: $id)"`
-		}
-
-		variables := map[string]interface{}{
-			"id": graphql.Int(recipeID),
-		}
-
-		if err := gqlClient.Query(context.Background(), &query, variables); err != nil {
-			fmt.Printf("Failed to fetch recipe details via GraphQL: %v\n", err)
-			// Continue anyway, or fail? Let's continue but log.
-		} else {
-			fmt.Printf("Verified purchase for recipe price: %f\n", query.RecipesByPk.Price)
-		}
-
-		// Insert purchase record using SQLX (Simpler than GraphQL mutation for now)
-		_, err := DB.Exec(`
-			INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (chapa_tx_ref) DO UPDATE
-			SET status = 'success', amount = EXCLUDED.amount, currency = EXCLUDED.currency
-		`, userID, recipeID, verifyResp.Data.Amount, "ETB", txRef, "success")
-
-		if err != nil {
-			fmt.Printf("Failed to insert purchase: %v\n", err)
-			http.Error(w, "Failed to record purchase", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Payment verified and recorded"})
-	} else {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "failed", "message": "Payment verification failed"})
+	if recipeID == 0 {
+		return nil, fmt.Errorf("unable to determine recipe_id")
 	}
+
+	// Update or insert purchase record
+	if err := s.recordPurchase(userID, recipeID, txRef, status, amount); err != nil {
+		return nil, err
+	}
+	if status == "success" {
+		s.logger.Printf("[PAYMENT SUCCESS] user_id=%d recipe_id=%d tx_ref=%s status=%s", userID, recipeID, txRef, status)
+	}
+
+	return &VerifyResult{
+		Status:  status,
+		Message: message,
+		TxRef:   txRef,
+	}, nil
 }
 
-// PaymentCallbackHandler handles Chapa webhook callbacks
-// This is called by Chapa when payment status changes
-func PaymentCallbackHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// ConfirmPayment is used by the redirect endpoint to verify and then redirect.
+func (s *PaymentService) ConfirmPayment(txRef string, urlBuilder *URLBuilder) (redirectURL string, err error) {
+	var purchase struct {
+		ID       int    `db:"id"`
+		RecipeID int    `db:"recipe_id"`
+		Status   string `db:"status"`
 	}
-
-	body, err := io.ReadAll(r.Body)
+	err = s.db.Get(&purchase, `SELECT id, recipe_id, status FROM purchases WHERE chapa_tx_ref = $1`, txRef)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
+		return "", ErrNotFound
 	}
 
-	// Parse Chapa callback payload
-	var callbackData struct {
+	if purchase.Status == "success" {
+		return urlBuilder.ConfirmRedirectURL(purchase.RecipeID, txRef, "success", "Payment already confirmed"), nil
+	}
+
+	status, amount, message, err := s.verifyChapaTransaction(txRef)
+	if err != nil {
+		return urlBuilder.ConfirmRedirectURL(purchase.RecipeID, txRef, "failed", message), nil
+	}
+
+	_, _ = s.db.Exec(`
+		UPDATE purchases
+		SET status = $1, amount = CASE WHEN $2 > 0 THEN $2 ELSE amount END
+		WHERE chapa_tx_ref = $3
+	`, status, amount, txRef)
+	if status == "success" {
+		s.logger.Printf("[PAYMENT SUCCESS] confirm tx_ref=%s status=%s", txRef, status)
+	}
+
+	return urlBuilder.ConfirmRedirectURL(purchase.RecipeID, txRef, status, message), nil
+}
+
+// HandleWebhook processes Chapa callbacks with signature verification.
+func (s *PaymentService) HandleWebhook(body []byte, signature string) error {
+	// Verify signature
+	if !s.verifyWebhookSignature(body, signature) {
+		return fmt.Errorf("invalid signature")
+	}
+
+	var callback struct {
 		TxRef  string `json:"tx_ref"`
 		Status string `json:"status"`
 		Data   struct {
@@ -515,45 +384,446 @@ func PaymentCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			Amount float64 `json:"amount"`
 		} `json:"data"`
 	}
-
-	if err := json.Unmarshal(body, &callbackData); err != nil {
-		fmt.Printf("Failed to parse callback: %v\n", err)
-		http.Error(w, "Invalid callback data", http.StatusBadRequest)
-		return
+	if err := json.Unmarshal(body, &callback); err != nil {
+		return fmt.Errorf("invalid callback data: %v", err)
+	}
+	if callback.TxRef == "" {
+		return nil // ignore if no tx_ref
 	}
 
-	fmt.Printf("Payment callback received: tx_ref=%s, status=%s\n", callbackData.TxRef, callbackData.Status)
+	status := normalizePurchaseStatus(callback.Data.Status)
+	if status == "" {
+		status = normalizePurchaseStatus(callback.Status)
+	}
+	_, err := s.db.Exec(`
+		UPDATE purchases
+		SET status = $1,
+		    amount = CASE WHEN $2 > 0 THEN $2 ELSE amount END
+		WHERE chapa_tx_ref = $3
+	`, status, callback.Data.Amount, callback.TxRef)
+	if err == nil && status == "success" {
+		s.logger.Printf("[PAYMENT SUCCESS] webhook tx_ref=%s status=%s", callback.TxRef, status)
+	}
+	return err
+}
 
-	// Extract recipe ID from tx_ref (format: tx-{recipeId}-{timestamp})
-	var recipeID int
-	var timestamp int64
-	if _, err := fmt.Sscanf(callbackData.TxRef, "tx-%d-%d", &recipeID, &timestamp); err != nil {
-		fmt.Printf("Failed to parse tx_ref: %v\n", err)
-		http.Error(w, "Invalid tx_ref format", http.StatusBadRequest)
-		return
+// ==================== Internal helpers ====================
+
+func (s *PaymentService) validateInitializeRequest(userID int, req *InitializePaymentRequest) error {
+	if req.Amount == "" || req.Email == "" || req.RecipeID == 0 {
+		return fmt.Errorf("missing required fields")
+	}
+	if !strings.Contains(req.Email, "@") {
+		return fmt.Errorf("invalid email")
+	}
+	amount, err := strconv.ParseFloat(req.Amount, 64)
+	if err != nil || amount <= 0 {
+		return fmt.Errorf("invalid amount")
+	}
+	// Check user exists
+	var exists bool
+	if err := s.db.Get(&exists, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, userID); err != nil {
+		return fmt.Errorf("failed to validate user: %v", err)
+	}
+	if !exists {
+		return fmt.Errorf("user not found")
+	}
+	if err := s.db.Get(&exists, `SELECT EXISTS(SELECT 1 FROM recipes WHERE id = $1)`, req.RecipeID); err != nil {
+		return fmt.Errorf("failed to validate recipe: %v", err)
+	}
+	if !exists {
+		return fmt.Errorf("recipe not found")
+	}
+	return nil
+}
+
+type purchaseInfo struct {
+	ID          int    `db:"id"`
+	TxRef       string `db:"chapa_tx_ref"`
+	Status      string `db:"status"`
+	CheckoutURL string `db:"checkout_url"`
+}
+
+func (s *PaymentService) getSuccessfulPurchase(userID, recipeID int) (*purchaseInfo, error) {
+	var p purchaseInfo
+	err := s.db.Get(&p, `
+		SELECT id, chapa_tx_ref, status, checkout_url
+		FROM purchases
+		WHERE user_id = $1 AND recipe_id = $2 AND status = 'success'
+		ORDER BY created_at DESC LIMIT 1
+	`, userID, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *PaymentService) getPendingPurchase(userID, recipeID int) (*purchaseInfo, error) {
+	var p purchaseInfo
+	err := s.db.Get(&p, `
+		SELECT id, chapa_tx_ref, status, checkout_url
+		FROM purchases
+		WHERE user_id = $1 AND recipe_id = $2 AND status = 'pending'
+		ORDER BY created_at DESC LIMIT 1
+	`, userID, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *PaymentService) findPurchasesByUserAndRecipe(userID, recipeID int) ([]purchaseInfo, error) {
+	var purchases []purchaseInfo
+	err := s.db.Select(&purchases, `
+		SELECT id, chapa_tx_ref, status, checkout_url
+		FROM purchases
+		WHERE user_id = $1 AND recipe_id = $2
+		ORDER BY CASE WHEN status = 'success' THEN 0 ELSE 1 END, created_at DESC
+	`, userID, recipeID)
+	return purchases, err
+}
+
+func (s *PaymentService) createPendingPurchase(userID int, req *InitializePaymentRequest, txRef string) (int, error) {
+	amount, _ := strconv.ParseFloat(req.Amount, 64)
+	var purchaseID int
+	err := s.db.Get(&purchaseID, `
+		INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status, checkout_url)
+		VALUES ($1, $2, $3, $4, $5, $6, NULL)
+		ON CONFLICT (user_id, recipe_id) DO UPDATE
+		SET amount = EXCLUDED.amount,
+		    currency = EXCLUDED.currency,
+		    chapa_tx_ref = EXCLUDED.chapa_tx_ref,
+		    status = 'pending',
+		    checkout_url = NULL,
+		    created_at = CURRENT_TIMESTAMP
+		RETURNING id
+	`, userID, req.RecipeID, amount, "ETB", txRef, "pending")
+	return purchaseID, err
+}
+
+func (s *PaymentService) updatePurchaseWithProviderData(purchaseID int, checkoutURL string) error {
+	_, err := s.db.Exec(`
+		UPDATE purchases
+		SET checkout_url = $1
+		WHERE id = $2
+	`, checkoutURL, purchaseID)
+	return err
+}
+
+func (s *PaymentService) callChapaInitialize(req *ChapaInitializeRequest) (*ChapaInitializeResponse, error) {
+	data, _ := json.Marshal(req)
+	httpReq, err := http.NewRequest("POST", s.chapaCfg.BaseURL+"/transaction/initialize", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+s.chapaCfg.SecretKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Chapa: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var chapaResp ChapaInitializeResponse
+	if err := json.Unmarshal(body, &chapaResp); err != nil {
+		return nil, fmt.Errorf("failed to parse Chapa response: %v", err)
+	}
+	if chapaResp.Status != "success" || chapaResp.Data.CheckoutURL == "" {
+		msg := stringFromAny(chapaResp.Message)
+		return nil, fmt.Errorf("Chapa initialization failed: %s", msg)
+	}
+	return &chapaResp, nil
+}
+
+func (s *PaymentService) verifyChapaTransaction(txRef string) (status string, amount float64, message string, err error) {
+	httpReq, err := http.NewRequest("GET", s.chapaCfg.BaseURL+"/transaction/verify/"+url.PathEscape(txRef), nil)
+	if err != nil {
+		return "failed", 0, "failed to create verification request", err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+s.chapaCfg.SecretKey)
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return "failed", 0, "failed to connect to Chapa", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var verifyResp ChapaVerifyResponse
+	if err := json.Unmarshal(body, &verifyResp); err != nil {
+		return "failed", 0, "failed to parse verification response", err
 	}
 
-	// If payment is successful, we need to find the user who made the payment
-	// Since we don't have user_id in callback, we'll need to verify with Chapa API
-	// and then the frontend verification will record it with user_id
-	if callbackData.Status == "success" || callbackData.Data.Status == "success" {
-		fmt.Printf("Payment successful for recipe %d, tx_ref %s\n", recipeID, callbackData.TxRef)
-		// The actual purchase recording will happen when user verifies with their user_id
+	msg := stringFromAny(verifyResp.Message)
+	if verifyResp.Status != "success" {
+		if msg == "" {
+			msg = "verification failed"
+		}
+		return "failed", 0, msg, nil
 	}
 
+	status = normalizePurchaseStatus(verifyResp.Data.Status)
+	if msg == "" {
+		msg = "payment status: " + status
+	}
+	return status, verifyResp.Data.Amount, msg, nil
+}
+
+func (s *PaymentService) recordPurchase(userID, recipeID int, txRef, status string, amount float64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO purchases (user_id, recipe_id, amount, currency, chapa_tx_ref, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (chapa_tx_ref) DO UPDATE
+		SET status = EXCLUDED.status,
+		    amount = CASE WHEN EXCLUDED.amount > 0 THEN EXCLUDED.amount ELSE purchases.amount END,
+		    currency = EXCLUDED.currency
+	`, userID, recipeID, amount, "ETB", txRef, status)
+	return err
+}
+
+func (s *PaymentService) verifyWebhookSignature(body []byte, signatureHeader string) bool {
+	// Chapa uses HMAC-SHA256 with the secret key.
+	// The signature is in the header "x-chapa-signature".
+	if s.chapaCfg.SecretKey == "" || signatureHeader == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(s.chapaCfg.SecretKey))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(signatureHeader), []byte(expected))
+}
+
+// ==================== Request/Response Types ====================
+
+type InitializePaymentRequest struct {
+	Amount   string `json:"amount"`
+	Email    string `json:"email"`
+	UserName string `json:"user_name"`
+	RecipeID int    `json:"recipe_id"`
+}
+
+type VerifyPaymentRequest struct {
+	TxRef    string `json:"tx_ref"`
+	RecipeID int    `json:"recipe_id"`
+}
+
+type ChapaInitializeRequest struct {
+	Amount      string `json:"amount"`
+	Currency    string `json:"currency"`
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	TxRef       string `json:"tx_ref"`
+	CallbackURL string `json:"callback_url,omitempty"`
+	ReturnURL   string `json:"return_url"`
+}
+
+type ChapaInitializeResponse struct {
+	Message interface{} `json:"message"`
+	Status  string      `json:"status"`
+	Data    struct {
+		CheckoutURL string      `json:"checkout_url"`
+		ID          interface{} `json:"id"`
+	} `json:"data"`
+}
+
+type ChapaVerifyResponse struct {
+	Message interface{} `json:"message"`
+	Status  string      `json:"status"`
+	Data    struct {
+		Status string      `json:"status"`
+		Amount float64     `json:"amount"`
+		ID     interface{} `json:"id"`
+	} `json:"data"`
+}
+
+type InitializeResult struct {
+	Status      string `json:"status"`
+	Message     string `json:"message,omitempty"`
+	Resumed     bool   `json:"resumed,omitempty"`
+	CheckoutURL string `json:"checkout_url,omitempty"`
+	TxRef       string `json:"tx_ref,omitempty"`
+}
+
+type VerifyResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	TxRef   string `json:"tx_ref,omitempty"`
+}
+
+// ==================== HTTP Handlers ====================
+
+// withRecovery is middleware that recovers from panics and logs them.
+func withRecovery(next http.HandlerFunc, logger *log.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				logger.Printf("panic: %v", rec)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next(w, r)
+	}
+}
+
+// writeError sends a JSON error response in Hasura Action format.
+func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "received"})
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
-// headerTransport adds headers to requests
-type headerTransport struct {
-	Transport http.RoundTripper
-	Headers   map[string]string
+// InitializePaymentHandler handles Hasura Action for initializing payment.
+func InitializePaymentHandler(svc *PaymentService) http.HandlerFunc {
+	return withRecovery(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		req, session, err := parseHasuraInput[InitializePaymentRequest](body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid hasura action payload")
+			return
+		}
+
+		userID, err := getUserIDFromSession(session)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		urlBuilder := NewURLBuilder(r)
+		result, err := svc.InitializePayment(userID, &req, urlBuilder)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}, svc.logger)
 }
 
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	for k, v := range t.Headers {
-		req.Header.Set(k, v)
+// VerifyPaymentHandler handles Hasura Action for verifying payment.
+func VerifyPaymentHandler(svc *PaymentService) http.HandlerFunc {
+	return withRecovery(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		req, session, err := parseHasuraInput[VerifyPaymentRequest](body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid hasura action payload")
+			return
+		}
+
+		userID, err := getUserIDFromSession(session)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		result, err := svc.VerifyPayment(userID, req.TxRef, req.RecipeID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}, svc.logger)
+}
+
+// PaymentCallbackHandler handles Chapa webhook callbacks.
+func PaymentCallbackHandler(svc *PaymentService) http.HandlerFunc {
+	return withRecovery(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+
+		signature := r.Header.Get("x-chapa-signature")
+		if err := svc.HandleWebhook(body, signature); err != nil {
+			svc.logger.Printf("webhook processing error: %v", err)
+			http.Error(w, "invalid signature or data", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "received"})
+	}, svc.logger)
+}
+
+// ConfirmPaymentHandler handles the redirect endpoint after payment.
+func ConfirmPaymentHandler(svc *PaymentService) http.HandlerFunc {
+	return withRecovery(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) < 3 || parts[0] != "payment" || parts[2] != "confirm" {
+			http.NotFound(w, r)
+			return
+		}
+
+		txRef, err := url.PathUnescape(parts[1])
+		if err != nil || txRef == "" {
+			http.Error(w, "invalid tx_ref", http.StatusBadRequest)
+			return
+		}
+		urlBuilder := NewURLBuilder(r)
+		redirectURL, err := svc.ConfirmPayment(txRef, urlBuilder)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+	}, svc.logger)
+}
+
+// ==================== Utility Functions ====================
+
+func stringFromAny(v interface{}) string {
+	if v == nil {
+		return ""
 	}
-	return t.Transport.RoundTrip(req)
+	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+func firstNameFromUserName(userName string) string {
+	name := strings.TrimSpace(userName)
+	if name == "" {
+		return "Customer"
+	}
+	parts := strings.Fields(name)
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "Customer"
+	}
+	return parts[0]
+}
+
+func parseRecipeIDFromTxRef(txRef string) (int, error) {
+	var recipeID int
+	var ts int64
+	_, err := fmt.Sscanf(txRef, "tx-%d-%d", &recipeID, &ts)
+	return recipeID, err
+}
+
+// NewDefaultPaymentService creates a payment service using environment-based Chapa config.
+func NewDefaultPaymentService(db *sqlx.DB, logger *log.Logger) *PaymentService {
+	return NewPaymentService(db, getChapaConfig(), logger)
 }

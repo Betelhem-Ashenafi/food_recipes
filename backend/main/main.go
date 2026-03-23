@@ -33,11 +33,17 @@ func main() {
 
 	// Pass the database connection to the handlers package
 	handlers.SetDB(db)
+	paymentSvc := handlers.NewDefaultPaymentService(db, log.Default())
 
 	// Set up routes for Hasura actions
 	http.HandleFunc("/hasura/login", handlers.HasuraLoginHandler)
 	http.HandleFunc("/hasura/signup", handlers.HasuraSignupHandler)
 	http.HandleFunc("/hasura/upload", handlers.HasuraUploadHandler)
+	http.HandleFunc("/hasura/payment/initialize", handlers.InitializePaymentHandler(paymentSvc))
+	http.HandleFunc("/hasura/payment/verify", handlers.VerifyPaymentHandler(paymentSvc))
+	http.HandleFunc("/hasura/payment/callback", handlers.PaymentCallbackHandler(paymentSvc))
+	http.HandleFunc("/hasura/events/payment-status", handlers.PaymentEventHandler)
+	http.HandleFunc("/payment/", handlers.ConfirmPaymentHandler(paymentSvc))
 
 	// Add CORS middleware for the frontend
 	handler := corsMiddleware(http.DefaultServeMux)
@@ -55,7 +61,7 @@ func main() {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)

@@ -5,14 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"foodrecipes/utils"
-
-	"github.com/golang-jwt/jwt"
 )
 
 type HasuraUploadInput struct {
@@ -32,29 +31,43 @@ type HasuraUploadResponse struct {
 	URL string `json:"url"`
 }
 
+type hasuraActionEnvelope struct {
+	Input            json.RawMessage        `json:"input"`
+	SessionVariables map[string]interface{} `json:"session_variables"`
+}
+
 // HasuraErrorResponse is already defined in auth.go; no need to redefine.
 func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Validate JWT token
-	tokenStr := extractTokenFromHeader(r)
-	if tokenStr == "" {
-		respondWithError(w, http.StatusUnauthorized, "Missing or invalid Authorization header", "invalid_token")
-		return
-	}
-	userID, err := validateAndExtractUserID(tokenStr)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token", "invalid_token")
+		respondWithError(w, http.StatusBadRequest, "Invalid request body", "invalid_body")
 		return
 	}
-	_ = userID // optional logging
 
-	// Parse JSON body
-	var payload HasuraUploadPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	var envelope hasuraActionEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Input) == 0 {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON body", "invalid_json")
 		return
 	}
+
+	rawUserID, ok := envelope.SessionVariables["x-hasura-user-id"]
+	if !ok {
+		respondWithError(w, http.StatusUnauthorized, "Missing session user id", "invalid_session")
+		return
+	}
+	if _, err := parseUserID(rawUserID); err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid session user id", "invalid_session")
+		return
+	}
+
+	var payload HasuraUploadPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid upload payload", "invalid_input")
+		return
+	}
+
 	var input *HasuraUploadInput
 	if payload.Input.Arg != nil {
 		input = payload.Input.Arg
@@ -91,54 +104,27 @@ func HasuraUploadHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(HasuraUploadResponse{URL: url})
 }
 
-// Helper functions (you may already have these in extra.go or auth.go)
-func extractTokenFromHeader(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return ""
-	}
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		return ""
-	}
-	return parts[1]
-}
-
-func validateAndExtractUserID(tokenStr string) (int, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return 0, fmt.Errorf("JWT_SECRET not set")
-	}
-
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+func parseUserID(raw interface{}) (int, error) {
+	switch v := raw.(type) {
+	case float64:
+		if v <= 0 {
+			return 0, fmt.Errorf("invalid user id")
 		}
-		return []byte(secret), nil
-	})
-
-	if err != nil || !token.Valid {
-		return 0, fmt.Errorf("invalid token")
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return 0, fmt.Errorf("invalid claims")
-	}
-
-	var userID float64
-	if uid, ok := claims["user_id"]; ok {
-		userID, _ = uid.(float64)
-	} else if hasuraClaims, ok := claims["https://hasura.io/jwt/claims"].(map[string]interface{}); ok {
-		if uid, ok := hasuraClaims["x-hasura-user-id"]; ok {
-			userID, _ = uid.(float64)
+		return int(v), nil
+	case string:
+		id, err := strconv.Atoi(v)
+		if err != nil || id <= 0 {
+			return 0, fmt.Errorf("invalid user id")
 		}
+		return id, nil
+	case int:
+		if v <= 0 {
+			return 0, fmt.Errorf("invalid user id")
+		}
+		return v, nil
+	default:
+		return 0, fmt.Errorf("unsupported user id type")
 	}
-
-	if userID == 0 {
-		return 0, fmt.Errorf("user ID not found in token")
-	}
-	return int(userID), nil
 }
 
 func respondWithError(w http.ResponseWriter, status int, message, code string) {

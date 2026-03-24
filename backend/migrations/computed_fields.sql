@@ -7,12 +7,12 @@ RETURNS FLOAT AS $$
 $$ LANGUAGE sql STABLE;
 
 -- Function to count ratings for a recipe
-CREATE OR REPLACE FUNCTION recipe_ratings_count(recipe_row recipes)
-RETURNS BIGINT AS $$
-  SELECT COUNT(*)
-  FROM ratings
-  WHERE recipe_id = recipe_row.id;
-$$ LANGUAGE sql STABLE;
+--CREATE OR REPLACE FUNCTION recipe_ratings_count(recipe_row recipes)
+--RETURNS BIGINT AS $$
+  --SELECT COUNT(*)
+  --FROM ratings
+  --WHERE recipe_id = recipe_row.id;
+--$$ LANGUAGE sql STABLE;
 
 -- Function to count likes for a recipe
 CREATE OR REPLACE FUNCTION recipe_likes_count(recipe_row recipes)

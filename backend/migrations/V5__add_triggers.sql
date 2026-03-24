@@ -13,6 +13,5 @@ CREATE TRIGGER update_recipes_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Optional: Add generated column example
--- ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT GENERATED ALWAYS AS (name) STORED;
+
 

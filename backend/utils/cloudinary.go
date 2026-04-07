@@ -13,10 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
-// UploadToCloudinary uploads a file to Cloudinary using the REST API and returns the URL or error.
+
 // It supports unsigned uploads via CLOUDINARY_UPLOAD_PRESET or signed uploads using CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.
 func UploadToCloudinary(ctx context.Context, file interface{}, filename string) (string, error) {
 	cloudName := os.Getenv("CLOUDINARY_CLOUD_NAME")
@@ -73,6 +74,14 @@ func UploadToCloudinary(ctx context.Context, file interface{}, filename string) 
 		filename = fmt.Sprintf("upload_%d", time.Now().Unix())
 	}
 
+	publicID := strings.TrimSpace(filename)
+	if ext := filepath.Ext(publicID); ext != "" {
+		publicID = strings.TrimSuffix(publicID, ext)
+	}
+	if publicID == "" {
+		publicID = fmt.Sprintf("upload_%d", time.Now().Unix())
+	}
+
 	if closer != nil {
 		defer closer.Close()
 	}
@@ -93,15 +102,16 @@ func UploadToCloudinary(ctx context.Context, file interface{}, filename string) 
 
 	if uploadPreset != "" {
 		_ = mw.WriteField("upload_preset", uploadPreset)
+		_ = mw.WriteField("public_id", publicID)
 	} else {
 		_ = mw.WriteField("timestamp", timestamp)
-		if filename != "" {
-			_ = mw.WriteField("public_id", filename)
+		if publicID != "" {
+			_ = mw.WriteField("public_id", publicID)
 		}
 		// create signature: sha1(<params_to_sign> + api_secret)
 		var toSign string
-		if filename != "" {
-			toSign = fmt.Sprintf("public_id=%s&timestamp=%s", filename, timestamp)
+		if publicID != "" {
+			toSign = fmt.Sprintf("public_id=%s&timestamp=%s", publicID, timestamp)
 		} else {
 			toSign = fmt.Sprintf("timestamp=%s", timestamp)
 		}

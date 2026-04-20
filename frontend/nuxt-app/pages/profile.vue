@@ -216,62 +216,33 @@ import { useRouter } from 'vue-router';
 const router = useRouter();
 const { client } = useApolloClient();
 
-// Get user from JWT - always return safe object structure
 const token = useCookie('auth_token');
-const userInfo = computed(() => {
+const claims = computed(() => {
   if (!token.value) return {};
   try {
     const decoded = jwtDecode(token.value);
-    // Ensure we always return an object with safe structure
-    if (!decoded || typeof decoded !== 'object') return {};
-    // Ensure claims is always an object, not null
-    if (decoded['https://hasura.io/jwt/claims']) {
-      if (typeof decoded['https://hasura.io/jwt/claims'] !== 'object' || decoded['https://hasura.io/jwt/claims'] === null) {
-        decoded['https://hasura.io/jwt/claims'] = {};
-      }
-    } else {
-      decoded['https://hasura.io/jwt/claims'] = {};
-    }
-    return decoded;
+    return decoded?.['https://hasura.io/jwt/claims'] || {};
   } catch {
     return {};
   }
 });
 
 const userName = computed(() => {
-  // First try localStorage (most reliable, stored during login)
   if (process.client) {
     const storedName = localStorage.getItem('user_name');
-    if (storedName && typeof storedName === 'string' && storedName.trim() !== '') {
+    if (storedName?.trim()) {
       return storedName;
     }
   }
-  
-  // Then try to get name from top-level JWT claims
-  if (userInfo.value?.name && typeof userInfo.value.name === 'string' && userInfo.value.name.trim() !== '') {
-    return userInfo.value.name;
-  }
-  
-  // Then try Hasura claims
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (claims && typeof claims === 'object' && claims !== null) {
-    if (claims['x-hasura-user-name'] && typeof claims['x-hasura-user-name'] === 'string' && claims['x-hasura-user-name'].trim() !== '') {
-      return claims['x-hasura-user-name'];
-    }
-  }
-  
-  // Last resort fallback
-  return 'User';
+  return claims.value['x-hasura-user-name'] || 'User';
 });
+
 const userEmail = computed(() => {
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (!claims || typeof claims !== 'object' || claims === null) return '';
-  return claims['x-hasura-user-email'] || '';
+  return claims.value['x-hasura-user-email'] || '';
 });
+
 const userId = computed(() => {
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (!claims || typeof claims !== 'object' || claims === null) return 0;
-  return parseInt(claims['x-hasura-user-id']) || 0;
+  return parseInt(claims.value['x-hasura-user-id']) || 0;
 });
 
 // Tabs
@@ -301,7 +272,7 @@ const BOOKMARKED_RECIPES_QUERY = gql`
         price
         preparation_time
         created_at
-        recipe_images(order_by: { id: asc }, limit: 1) {
+        recipe_images(order_by: [{ is_featured: desc }, { id: asc }], limit: 1) {
           url
         }
       }
@@ -320,7 +291,7 @@ const PURCHASES_BY_STATUS_QUERY = gql`
         price
         preparation_time
         created_at
-        recipe_images(order_by: { id: asc }, limit: 1) {
+        recipe_images(order_by: [{ is_featured: desc }, { id: asc }], limit: 1) {
           url
         }
       }
@@ -346,7 +317,7 @@ const myRecipesQuery = gql`
       price
       preparation_time
       created_at
-      recipe_images(order_by: { id: asc }, limit: 1) {
+      recipe_images(order_by: [{ is_featured: desc }, { id: asc }], limit: 1) {
         url
       }
     }
@@ -366,17 +337,8 @@ const { result: recipesResult, refetch: refetchMyRecipes } = useQuery(
 );
 
 const myRecipes = computed(() => {
-  if (!recipesResult.value || typeof recipesResult.value !== 'object') return [];
-  if (!recipesResult.value.recipes || !Array.isArray(recipesResult.value.recipes)) return [];
-  return recipesResult.value.recipes;
+  return recipesResult.value?.recipes || [];
 });
-
-// Function to refetch recipes
-const fetchMyRecipes = async () => {
-  if (refetchMyRecipes) {
-    await refetchMyRecipes();
-  }
-};
 
 // Fetch Bookmarked Recipes
 const bookmarkedRecipes = ref([]);
@@ -394,7 +356,6 @@ const fetchBookmarkedRecipes = async () => {
     const bookmarks = result?.data?.bookmarks || [];
     bookmarkedRecipes.value = bookmarks.map((item) => item.recipe).filter(Boolean);
   } catch (err) {
-    console.error('Error fetching bookmarks:', err);
     bookmarkedRecipes.value = [];
   }
 };
@@ -434,7 +395,6 @@ const fetchPurchasedRecipes = async () => {
 
     purchasesByStatus.value = grouped;
   } catch (err) {
-    console.error('Error fetching purchases:', err);
     purchasesByStatus.value = { success: [], pending: [], failed: [] };
   }
 };
@@ -466,8 +426,7 @@ const editRecipe = (recipeId, event) => {
     event.preventDefault();
     event.stopPropagation();
   }
-  console.log('[PROFILE] Edit button clicked for recipe:', recipeId);
-  router.push(`/recipes/${recipeId}/edit`);
+  router.push(`/recipes/${recipeId}?edit=1`);
 };
 
 // Delete Recipe
@@ -482,17 +441,15 @@ const deleteRecipe = async (recipeId) => {
   }
   
   try {
-    console.log(`[DELETE] Deleting recipe ${recipeId}`);
     await client.mutate({
       mutation: DELETE_RECIPE_MUTATION,
       variables: { id: recipeId }
     });
-    console.log(`[DELETE] Recipe ${recipeId} deleted successfully`);
-    await fetchMyRecipes();
-    alert('Recipe deleted successfully!');
+    if (refetchMyRecipes) {
+      await refetchMyRecipes();
+    }
   } catch (err) {
-    console.error('[DELETE] Exception:', err);
-    alert('Failed to delete recipe. Please check if backend is running.');
+    // Keep UI simple: error card can be added later if needed
   }
 };
 
@@ -507,13 +464,11 @@ watch(activeTab, (newTab) => {
 
 // Load data on mount
 onMounted(() => {
-  // Redirect if not logged in
   if (!token.value) {
     router.push('/login');
     return;
   }
-  
-  fetchMyRecipes();
+
   fetchBookmarkedRecipes();
   fetchPurchasedRecipes();
 });

@@ -86,7 +86,7 @@
           <NuxtLink 
             to="/create" 
             @click="mobileMenuOpen = false"
-            class="block px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-md text-base font-medium transition-colors flex items-center gap-2"
+            class="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-md text-base font-medium transition-colors flex items-center gap-2"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -96,7 +96,7 @@
           <NuxtLink 
             to="/profile" 
             @click="mobileMenuOpen = false"
-            class="block px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-md text-base font-medium transition-colors flex items-center gap-2"
+            class="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-md text-base font-medium transition-colors flex items-center gap-2"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

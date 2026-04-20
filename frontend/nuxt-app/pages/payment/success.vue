@@ -14,13 +14,14 @@
     <div class="relative z-10 flex items-center justify-center min-h-screen px-4 py-16">
       <div class="max-w-md w-full bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl shadow-2xl p-8 text-center">
         <div class="mb-6">
-          <div class="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg"
+               :class="statusBadgeClass">
             <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 class="text-3xl font-bold text-white mb-2">Payment Successful!</h1>
-          <p class="text-gray-300">Your recipe purchase has been confirmed.</p>
+          <h1 class="text-3xl font-bold text-white mb-2">{{ statusTitle }}</h1>
+          <p class="text-gray-300">{{ statusDescription }}</p>
         </div>
 
         <div v-if="recipe" class="mb-6 p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg">
@@ -31,9 +32,18 @@
         <div class="space-y-3">
           <button
             @click="goToRecipe"
+            :disabled="!canOpenRecipe"
             class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold py-4 rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all shadow-lg hover:shadow-emerald-500/30 transform hover:-translate-y-0.5"
+            :class="{ 'opacity-60 cursor-not-allowed hover:from-emerald-600 hover:to-teal-600 transform-none': !canOpenRecipe }"
           >
-            View Recipe
+            {{ canOpenRecipe ? 'View Recipe' : 'Waiting For Confirmation' }}
+          </button>
+          <button
+            v-if="paymentStatus === 'pending'"
+            @click="recheckNow"
+            class="w-full bg-amber-500/20 border border-amber-400/50 text-amber-100 font-semibold py-4 rounded-lg hover:bg-amber-500/30 transition-all"
+          >
+            Check Payment Again
           </button>
           <button
             @click="goToHome"
@@ -48,20 +58,123 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import { provideApolloClient, useApolloClient } from '@vue/apollo-composable';
-import apolloClient from '~/plugins/apollo.client';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { useApolloClient } from '@vue/apollo-composable';
 import gql from 'graphql-tag';
 import { useRouter, useRoute } from '#app';
-import { getApiUrl } from '~/utils/api';
-
-provideApolloClient(apolloClient);
+import { verifyPaymentAction } from '~/utils/payment-actions';
 
 const { client } = useApolloClient();
 const recipe = ref(null);
 const recipeId = ref(null);
 const router = useRouter();
 const route = useRoute();
+const pollTimer = ref(null);
+const verifyAttempts = ref(0);
+const maxVerifyAttempts = 30;
+
+const firstQueryValue = (query, key) => {
+  const value = query?.[key];
+  if (Array.isArray(value)) return value[0];
+  return value;
+};
+
+const normalizeQueryObject = () => {
+  const normalized = {};
+
+  // Start from Nuxt route query.
+  Object.entries(route.query || {}).forEach(([rawKey, rawValue]) => {
+    const key = String(rawKey || '').replace(/^amp;/, '');
+    if (!key) return;
+    if (normalized[key] === undefined) {
+      normalized[key] = Array.isArray(rawValue) ? rawValue[0] : rawValue;
+    }
+  });
+
+  // Parse raw search to recover keys from URLs containing '&amp;'.
+  if (process.client) {
+    const rawSearch = String(window.location.search || '').replace(/&amp;/g, '&');
+    const params = new URLSearchParams(rawSearch.startsWith('?') ? rawSearch.slice(1) : rawSearch);
+    for (const [rawKey, rawValue] of params.entries()) {
+      const key = String(rawKey || '').replace(/^amp;/, '');
+      if (!key) continue;
+      if (normalized[key] === undefined || normalized[key] === '') {
+        normalized[key] = rawValue;
+      }
+    }
+  }
+
+  return normalized;
+};
+
+const normalizeStatus = (rawStatus) => {
+  const status = String(rawStatus || '').toLowerCase().trim();
+  if (['success', 'completed', 'paid'].includes(status)) return 'success';
+  if (['pending', 'processing', 'created', 'initiated'].includes(status)) return 'pending';
+  if (status === 'failed') return 'failed';
+  return status || 'pending';
+};
+
+const resolvedStatus = ref(normalizeStatus(route.query.status || 'pending'));
+const resolvedMessage = ref(String(route.query.message || '').trim());
+
+const setStatus = (nextStatus, message = '') => {
+  const next = normalizeStatus(nextStatus);
+  // Once confirmed successful, do not downgrade to pending/failed.
+  if (resolvedStatus.value === 'success' && next !== 'success') {
+    return;
+  }
+  resolvedStatus.value = next || resolvedStatus.value;
+  if (String(message || '').trim()) {
+    resolvedMessage.value = String(message).trim();
+  }
+};
+
+const updateUrlStatus = async (nextStatus, message = '') => {
+  const current = { ...normalizeQueryObject() };
+  current.status = normalizeStatus(nextStatus || current.status || 'pending');
+  if (String(message || '').trim()) {
+    current.message = String(message).trim();
+  }
+  try {
+    await router.replace({ path: route.path, query: current });
+  } catch {
+    // URL sync is best-effort only.
+  }
+};
+
+const stopPolling = () => {
+  if (pollTimer.value) {
+    clearTimeout(pollTimer.value);
+    pollTimer.value = null;
+  }
+};
+
+const scheduleNextVerify = (fn, delayMs = 4000) => {
+  stopPolling();
+  pollTimer.value = setTimeout(async () => {
+    await fn();
+  }, delayMs);
+};
+
+const paymentStatus = computed(() => resolvedStatus.value || 'pending');
+const canOpenRecipe = computed(() => paymentStatus.value === 'success');
+const statusTitle = computed(() => {
+  if (paymentStatus.value === 'pending') return 'Payment Pending';
+  if (paymentStatus.value === 'failed') return 'Payment Failed';
+  return 'Payment Successful!';
+});
+const statusDescription = computed(() => {
+  if (resolvedMessage.value) return resolvedMessage.value;
+  if (paymentStatus.value === 'pending') return 'Your payment is being processed. Please wait and refresh later.';
+  if (paymentStatus.value === 'failed') return 'Payment was not completed. You can return and resume your payment.';
+  return 'Your recipe purchase has been confirmed.';
+});
+const statusBadgeClass = computed(() => {
+  if (paymentStatus.value === 'pending') return 'bg-amber-500';
+  if (paymentStatus.value === 'failed') return 'bg-red-500';
+  return 'bg-emerald-500';
+});
 
 const RECIPE_TITLE_QUERY = gql`
   query GetRecipeTitle($id: Int!) {
@@ -73,11 +186,17 @@ const RECIPE_TITLE_QUERY = gql`
 `;
 
 const verifyPayment = async () => {
+  const normalizedQuery = normalizeQueryObject();
+
   // Debug: Log all query params to see what Chapa is actually sending
   console.log('Payment success page - All query params:', route.query);
   console.log('Payment success page - Full URL:', window.location.href);
+  console.log('Payment success page - Normalized query params:', normalizedQuery);
   
-  const txRef = route.query.tx_ref || route.query.txRef || route.query.txref;
+  const txRef =
+    firstQueryValue(normalizedQuery, 'tx_ref') ||
+    firstQueryValue(normalizedQuery, 'txRef') ||
+    firstQueryValue(normalizedQuery, 'txref');
   let extractedRecipeId = null;
 
   // Try to get recipe ID from tx_ref (format: tx-{recipeId}-{timestamp})
@@ -92,8 +211,8 @@ const verifyPayment = async () => {
   }
 
   // Also check if recipe_id is in query params (fallback)
-  if (!extractedRecipeId && route.query.recipe_id) {
-    extractedRecipeId = parseInt(route.query.recipe_id);
+  if (!extractedRecipeId && firstQueryValue(normalizedQuery, 'recipe_id')) {
+    extractedRecipeId = parseInt(firstQueryValue(normalizedQuery, 'recipe_id'));
     console.log('Found recipe_id in query params:', extractedRecipeId);
   }
 
@@ -122,51 +241,51 @@ const verifyPayment = async () => {
     }
   }
 
-      const paymentStatus = ref('verifying'); // 'verifying', 'success', 'pending', 'failed'
-      const paymentMessage = ref('Verifying your payment...');
   if (!extractedRecipeId) {
     // No recipe ID found - user might have navigated directly
     console.warn('No recipe ID found in payment success page');
-    console.warn('Available query params:', Object.keys(route.query));
+    console.warn('Available query params:', Object.keys(normalizedQuery));
+    resolvedStatus.value = 'failed';
+    if (!resolvedMessage.value) setStatus('failed', 'Could not determine the recipe for this payment.');
     return;
   }
+
+  // Rewrite malformed amp-prefixed query params to canonical keys on first load.
+  await updateUrlStatus(paymentStatus.value, resolvedMessage.value);
 
   // Store recipe ID so we can always navigate to it
   recipeId.value = extractedRecipeId;
 
   // Verify payment - try with tx_ref first, then with recipe_id
-  let retryCount = 0;
-  const maxRetries = 5;
-  
   const verifyPaymentWithRetry = async () => {
-    if (retryCount >= maxRetries) {
-      console.warn('⚠️ Max retries reached for payment verification');
+    if (verifyAttempts.value >= maxVerifyAttempts) {
+      setStatus('pending', 'Payment is still pending. Please keep this page open and try again shortly.');
+      await updateUrlStatus('pending', 'Payment is still pending. Please keep this page open and try again shortly.');
       return false;
     }
-    
-    const token = useCookie('auth_token').value;
+    verifyAttempts.value += 1;
     
     // First try with tx_ref if available
     if (txRef) {
       try {
         console.log('💳 Verifying payment with tx_ref:', txRef);
-        
-        const response = await fetch(`${getApiUrl()}/payment/verify?tx_ref=${txRef}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'success') {
-            console.log('✅ Payment verified successfully with tx_ref! Purchase recorded.');
-            return true;
-          } else {
-            console.warn('⚠️ Payment verification returned non-success status:', data);
-          }
+        const data = await verifyPaymentAction(client, { tx_ref: txRef });
+        if (data?.status === 'success') {
+          console.log('✅ Payment verified successfully with tx_ref! Purchase recorded.');
+          setStatus('success', String(data?.message || 'Your recipe purchase has been confirmed.'));
+          await updateUrlStatus('success', String(data?.message || 'Your recipe purchase has been confirmed.'));
+          stopPolling();
+          return true;
+        } else if (data?.status === 'pending') {
+          setStatus('pending', String(data?.message || 'Payment is still processing.'));
+          await updateUrlStatus('pending', String(data?.message || 'Payment is still processing.'));
         } else {
-          console.warn('⚠️ Payment verification with tx_ref failed:', response.status);
+          setStatus('failed', String(data?.message || 'Payment was not completed.'));
+          await updateUrlStatus('failed', String(data?.message || 'Payment was not completed.'));
+          stopPolling();
+          console.warn('⚠️ Payment verification returned non-success status:', data);
+          return false;
         }
       } catch (err) {
         console.warn('⚠️ Error verifying payment with tx_ref:', err);
@@ -176,37 +295,35 @@ const verifyPayment = async () => {
     // If tx_ref verification failed or no tx_ref, try with recipe_id
     if (extractedRecipeId) {
       try {
-        console.log(`💳 Verifying payment with recipe_id: ${extractedRecipeId} (attempt ${retryCount + 1}/${maxRetries})`);
-        
-        const response = await fetch(`${getApiUrl()}/payment/verify?recipe_id=${extractedRecipeId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        console.log(`💳 Verifying payment with recipe_id: ${extractedRecipeId} (attempt ${verifyAttempts.value}/${maxVerifyAttempts})`);
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'success') {
-            console.log('✅ Payment verified successfully with recipe_id! Purchase confirmed.');
-            return true;
-          } else if (data.status === 'pending') {
-            retryCount++;
-            console.log(`⏳ Payment still processing, will retry in 3 seconds... (${retryCount}/${maxRetries})`);
-            // Retry after delay with exponential backoff
-            const delay = Math.min(3000 * retryCount, 10000); // Max 10 seconds
-            setTimeout(async () => {
-              await verifyPaymentWithRetry();
-            }, delay);
-            return false;
-          } else {
-            console.warn('⚠️ Payment verification returned:', data);
-          }
+        const data = await verifyPaymentAction(client, { recipe_id: extractedRecipeId });
+        if (data?.status === 'success') {
+          console.log('✅ Payment verified successfully with recipe_id! Purchase confirmed.');
+          setStatus('success', String(data?.message || 'Your recipe purchase has been confirmed.'));
+          await updateUrlStatus('success', String(data?.message || 'Your recipe purchase has been confirmed.'));
+          stopPolling();
+          return true;
+        } else if (data?.status === 'pending') {
+          setStatus('pending', String(data?.message || 'Payment is still processing.'));
+          await updateUrlStatus('pending', String(data?.message || 'Payment is still processing.'));
+          console.log(`⏳ Payment still processing, retrying on same URL... (${verifyAttempts.value}/${maxVerifyAttempts})`);
+          const delay = Math.min(2000 + verifyAttempts.value * 300, 7000);
+          scheduleNextVerify(verifyPaymentWithRetry, delay);
+          return false;
         } else {
-          const errorText = await response.text().catch(() => 'Unknown error');
-          console.warn('⚠️ Payment verification with recipe_id failed:', response.status, errorText);
+          setStatus('failed', String(data?.message || 'Payment was not completed.'));
+          await updateUrlStatus('failed', String(data?.message || 'Payment was not completed.'));
+          stopPolling();
+          console.warn('⚠️ Payment verification returned:', data);
+          return false;
         }
       } catch (err) {
+        setStatus('pending', 'Verification is retrying. Please keep this page open.');
+        await updateUrlStatus('pending', 'Verification is retrying. Please keep this page open.');
         console.warn('⚠️ Error verifying payment with recipe_id:', err);
+        scheduleNextVerify(verifyPaymentWithRetry, 5000);
+        return false;
       }
     }
     
@@ -231,6 +348,9 @@ const verifyPayment = async () => {
 };
 
 const goToRecipe = () => {
+  if (!canOpenRecipe.value) {
+    return;
+  }
   // Always use recipeId.value if available, fallback to recipe.value?.id
   const idToUse = recipeId.value || recipe.value?.id;
   if (idToUse) {
@@ -247,12 +367,22 @@ const goToHome = () => {
   router.push('/home');
 };
 
+const recheckNow = async () => {
+  verifyAttempts.value = 0;
+  stopPolling();
+  await verifyPayment();
+};
+
 onMounted(async () => {
   try {
     await verifyPayment();
   } catch (err) {
     console.error('Error in payment success page:', err);
   }
+});
+
+onBeforeUnmount(() => {
+  stopPolling();
 });
 </script>
 

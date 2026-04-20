@@ -74,7 +74,7 @@
                     v-for="cat in categories"
                     :key="cat.id"
                     type="button"
-                    @click="selectedCategoryId = cat.id"
+                    @click="selectCategory(cat.id)"
                     :class="[
                       'group relative overflow-hidden rounded-lg border-2 transition-all duration-300 transform hover:scale-105',
                       selectedCategoryId === cat.id
@@ -84,19 +84,19 @@
                   >
                     <!-- Category Image -->
                     <div class="relative h-20 md:h-24 overflow-hidden">
-                      <img 
-                        v-if="cat.image_url"
-                        :src="cat.image_url" 
+                      <img
+                        v-if="shouldShowCategoryImage(cat)"
+                        :src="normalizedCategoryImageUrl(cat)"
                         :alt="cat.name"
                         class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        @error="(e) => e.target.style.display = 'none'"
+                        @error="markCategoryImageFailed(cat.id)"
                       />
-                      <!-- Fallback gradient if no image -->
+                      <!-- Fallback if no image -->
                       <div 
                         v-else
                         class="w-full h-full bg-gradient-to-br from-emerald-500/40 via-teal-500/40 to-blue-500/40 flex items-center justify-center"
                       >
-                        <span class="text-3xl">{{ getCategoryEmoji(cat.name) }}</span>
+                        <span class="text-white font-semibold text-sm text-center px-2">{{ cat.name }}</span>
                       </div>
                       
                       <!-- Overlay gradient -->
@@ -119,14 +119,7 @@
                   </button>
                 </div>
                 
-                <!-- Hidden Field for Form Validation - sync with selectedCategoryId -->
-                <Field 
-                  name="category_id" 
-                  :model-value="selectedCategoryId"
-                  @update:model-value="selectedCategoryId = $event"
-                  type="hidden"
-                />
-                <ErrorMessage name="category_id" class="text-red-400 text-xs mt-1" />
+                <!-- Category validation is handled explicitly in submit flow -->
                 <p v-if="!selectedCategoryId" class="text-yellow-400 text-xs mt-1">⚠️ Please select a category</p>
               </div>
 
@@ -236,35 +229,41 @@
               <span class="text-emerald-400 mr-2">🥕</span> Ingredients
             </h2>
             
-            <div v-for="(ingredient, index) in ingredients" :key="index" class="mb-4 flex gap-3">
+            <div v-for="(ingredient, index) in ingredients" :key="index" class="mb-4 rounded-lg border border-white/10 p-3 sm:p-0 sm:border-0 sm:rounded-none">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
               <input 
                 v-model="ingredient.name"
                 type="text"
                 placeholder="Ingredient name"
-                class="flex-1 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                class="w-full sm:flex-1 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <input 
-                v-model="ingredient.quantity"
-                type="text"
-                placeholder="Qty"
-                class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <select
-                v-model="ingredient.unit_id"
-                class="w-32 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="" disabled>Select</option>
-                <option v-for="unit in units" :key="unit.id" :value="unit.id">
-                  {{ unit.name }}
-                </option>
-              </select>
-              <button 
-                type="button"
-                @click="removeIngredient(index)"
-                class="px-4 py-3 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors"
-              >
-                Remove
-              </button>
+                <div class="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:w-auto">
+                  <input 
+                    v-model.number="ingredient.quantity"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Quantity"
+                    class="w-full sm:w-28 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <select
+                    v-model="ingredient.unit_id"
+                    class="w-full sm:w-36 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="" disabled>Unit</option>
+                    <option v-for="unit in units" :key="unit.id" :value="unit.id">
+                      {{ unit.name }}
+                    </option>
+                  </select>
+                </div>
+                <button 
+                  type="button"
+                  @click="removeIngredient(index)"
+                  class="w-full sm:w-auto px-4 py-3 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
 
             <button 
@@ -283,7 +282,7 @@
             </h2>
             
             <div v-for="(step, index) in steps" :key="index" class="mb-4">
-              <div class="flex items-start gap-3">
+              <div class="flex flex-col sm:flex-row sm:items-start gap-3">
                 <div class="flex-shrink-0 w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
                   {{ index + 1 }}
                 </div>
@@ -296,7 +295,7 @@
                 <button 
                   type="button"
                   @click="removeStep(index)"
-                  class="px-4 py-3 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors"
+                  class="w-full sm:w-auto px-4 py-3 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors"
                 >
                   Remove
                 </button>
@@ -318,17 +317,17 @@
           </div>
 
           <!-- Submit Button -->
-          <div class="flex gap-4">
+          <div class="flex flex-col sm:flex-row gap-4">
             <NuxtLink 
               to="/home"
-              class="flex-1 px-6 py-4 border border-white/30 rounded-lg text-white hover:bg-white/10 transition-colors font-semibold text-center"
+              class="w-full sm:flex-1 px-6 py-4 border border-white/30 rounded-lg text-white hover:bg-white/10 transition-colors font-semibold text-center"
             >
               Cancel
             </NuxtLink>
             <button 
               type="submit" 
               :disabled="isSubmitting || uploadingImage"
-              class="flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-lg hover:from-emerald-500 hover:to-teal-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-emerald-500/30 transform hover:-translate-y-0.5"
+              class="w-full sm:flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-lg hover:from-emerald-500 hover:to-teal-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-emerald-500/30 transform hover:-translate-y-0.5"
             >
               {{ isSubmitting ? 'Creating Recipe...' : 'Create Recipe' }}
             </button>
@@ -403,6 +402,36 @@ onMounted(() => {
 const categories = ref([]);
 const selectedCategoryId = ref(null);
 const units = ref([]);
+const failedCategoryImageIds = ref(new Set());
+
+const normalizeImageUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^\/\//.test(raw)) return `https:${raw}`;
+  return `https://${raw}`;
+};
+
+const normalizedCategoryImageUrl = (category) => {
+  return normalizeImageUrl(category?.image_url);
+};
+
+const shouldShowCategoryImage = (category) => {
+  const categoryId = Number(category?.id);
+  const hasImage = normalizedCategoryImageUrl(category) !== '';
+  return hasImage && !failedCategoryImageIds.value.has(categoryId);
+};
+
+const markCategoryImageFailed = (categoryId) => {
+  const next = new Set(failedCategoryImageIds.value);
+  next.add(Number(categoryId));
+  failedCategoryImageIds.value = next;
+};
+
+const selectCategory = (categoryId) => {
+  selectedCategoryId.value = Number(categoryId) || null;
+};
+
 const fetchOptions = async (query, dataKey, targetRef) => {
   try {
     const result = await client.query({
@@ -416,27 +445,6 @@ const fetchOptions = async (query, dataKey, targetRef) => {
   }
 };
 
-// Get Category Emoji (fallback when image is not available)
-const getCategoryEmoji = (name) => {
-  const emojiMap = {
-    Italian: '🍝',
-    Mexican: '🌮',
-    Asian: '🍜',
-    Dessert: '🍰',
-    Breakfast: '🥞',
-    Lunch: '🥗',
-    Dinner: '🍽️',
-    Vegetarian: '🥬',
-    Vegan: '🌱',
-    Seafood: '🐟',
-    Pasta: '🍝',
-    Pizza: '🍕',
-    Salad: '🥗',
-    Soup: '🍲',
-    Beverage: '🥤'
-  };
-  return emojiMap[name] || '🍳';
-};
 
 // Dynamic Ingredients
 const ingredients = ref([
@@ -480,10 +488,6 @@ const removeStep = (index) => {
 const schema = yup.object({
   title: yup.string().required().min(3).label('Title'),
   description: yup.string().required().min(10).label('Description'),
-  category_id: yup.mixed().test('required', 'Category is required', function(value) {
-    const catId = value || selectedCategoryId.value;
-    return catId !== null && catId !== undefined && catId !== '' && catId !== 0;
-  }).label('Category'),
   preparation_time: yup.number().required().min(1).label('Preparation Time'),
   price: yup.number().min(0).label('Price'),
 });
@@ -566,7 +570,7 @@ const requireCondition = (condition, message) => {
 const handleCreateRecipe = async (values) => {
   createError.value = '';
 
-  const categoryId = values.category_id || selectedCategoryId.value;
+  const categoryId = selectedCategoryId.value;
   if (!requireCondition(categoryId && categoryId !== 0, 'Please select a category')) return;
 
   const validIngredients = ingredients.value.filter(ing => ing.name.trim() !== '');
@@ -574,6 +578,13 @@ const handleCreateRecipe = async (values) => {
 
   const hasMissingUnit = validIngredients.some((ing) => !ing.unit_id);
   if (!requireCondition(!hasMissingUnit, 'Please select a unit for every ingredient')) return;
+
+  const hasInvalidQuantity = validIngredients.some((ing) => {
+    if (ing.quantity === '' || ing.quantity === null || ing.quantity === undefined) return true;
+    const quantityValue = Number(ing.quantity);
+    return Number.isNaN(quantityValue) || quantityValue <= 0;
+  });
+  if (!requireCondition(!hasInvalidQuantity, 'Please enter a valid quantity (number > 0) for every ingredient')) return;
 
   const validSteps = steps.value.filter(step => step.instruction.trim() !== '');
   if (!requireCondition(validSteps.length > 0, 'Please add at least one preparation step')) return;
@@ -592,7 +603,7 @@ const handleCreateRecipe = async (values) => {
     recipe_ingredients: {
       data: validIngredients.map((ing) => ({
         name: ing.name,
-        quantity: ing.quantity,
+        quantity: String(ing.quantity),
         unit_id: parseInt(ing.unit_id)
       }))
     },

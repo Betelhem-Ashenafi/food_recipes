@@ -73,12 +73,19 @@
               ]"
             >
               <div class="relative h-32 md:h-40 overflow-hidden">
-                <img 
-                  :src="category.image_url" 
+                <img
+                  v-if="shouldShowCategoryImage(category)"
+                  :src="normalizedCategoryImageUrl(category)"
                   :alt="category.name"
                   class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  @error="handleImageError"
+                  @error="markCategoryImageFailed(category.id)"
                 />
+                <div
+                  v-else
+                  class="w-full h-full bg-gradient-to-br from-emerald-500/40 via-teal-500/40 to-blue-500/40 flex items-center justify-center"
+                >
+                  <span class="text-white font-semibold text-sm text-center px-2">{{ category.name }}</span>
+                </div>
                 <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
                 <div class="absolute bottom-0 left-0 right-0 p-3 text-center">
                   <p class="text-white font-bold text-sm md:text-base drop-shadow-lg">{{ category.name }}</p>
@@ -152,7 +159,12 @@
             class="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl overflow-hidden hover:bg-white/15 hover:border-emerald-400/50 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-emerald-500/20"
           >
             <div class="relative h-64 overflow-hidden">
-                <img :src="(recipe.recipe_images && recipe.recipe_images[0]?.url) || 'https://images.unsplash.com/placeholder.jpg'" :alt="recipe.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                <img
+                  :src="(recipe.recipe_images && recipe.recipe_images[0]?.url) || 'https://images.unsplash.com/placeholder.jpg'"
+                  :alt="recipe.title"
+                  class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                  @error="event => event.target.src = 'https://images.unsplash.com/placeholder.jpg'"
+                >
               <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
               <div class="absolute top-4 right-4">
                 <span v-if="recipe.price > 0" class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/90 text-white backdrop-blur-sm shadow-lg">💎 {{ recipe.price }} Credits</span>
@@ -190,9 +202,9 @@
 
         <!-- Pagination -->
         <div class="flex justify-center gap-4 mt-8">
-          <button @click="page = Math.max(1, page - 1)" :disabled="page === 1" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Previous</button>
+          <button @click="goPreviousPage" :disabled="page === 1" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Previous</button>
           <span class="text-white">Page {{ page }}</span>
-          <button @click="page = page + 1" :disabled="recipes.length < limit" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Next</button>
+          <button @click="goNextPage" :disabled="recipes.length < limit" class="px-4 py-2 bg-gray-200 rounded disabled:opacity-50">Next</button>
         </div>
       </div>
     </div>
@@ -229,6 +241,7 @@ const creatorFilter = ref('');
 const page = ref(1);
 const limit = ref(6);
 const recipesSection = ref(null);
+const failedCategoryImageIds = ref(new Set());
 
 // GraphQL Queries
 const categoriesQuery = gql`
@@ -262,7 +275,7 @@ const recipesQuery = gql`
       created_at
       user_id
       user { id name }
-      recipe_images(order_by: { id: asc }, limit: 1) { url }
+      recipe_images(order_by: [{ is_featured: desc }, { id: asc }], limit: 1) { url }
     }
   }
 `;
@@ -285,18 +298,24 @@ const { result: categoriesData, loading: categoriesPending, error: categoriesErr
 const categories = computed(() => categoriesData.value?.categories || []);
 
 // Build filter variables for recipes
+const hasValue = (value) => value !== null && value !== undefined && value !== '';
+
 const filterVariables = computed(() => {
   const title = searchQuery.value?.trim() || '';
   const creator = creatorFilter.value?.trim() || '';
   const ingredient = ingredientFilter.value?.trim() || '';
 
-  const andFilters = [{ title: { _ilike: title ? `%${title}%` : '%' } }];
+  const andFilters = [];
 
-  if (selectedCategory.value !== null && selectedCategory.value !== undefined) {
+  if (title !== '') {
+    andFilters.push({ title: { _ilike: `%${title}%` } });
+  }
+
+  if (hasValue(selectedCategory.value)) {
     andFilters.push({ category_id: { _eq: selectedCategory.value } });
   }
 
-  if (prepTimeFilter.value !== null && prepTimeFilter.value !== undefined && prepTimeFilter.value !== '') {
+  if (hasValue(prepTimeFilter.value)) {
     andFilters.push({ preparation_time: { _lte: parseInt(prepTimeFilter.value) } });
   }
 
@@ -311,14 +330,14 @@ const filterVariables = computed(() => {
   return {
     limit: limit.value,
     offset: (page.value - 1) * limit.value,
-    where: { _and: andFilters },
+    where: andFilters.length > 0 ? { _and: andFilters } : {},
   };
 });
 
 // Fetch recipes
 const { result: recipesData, error: recipesError, loading: recipesPending, refetch } = useQuery(
   recipesQuery,
-  filterVariables,
+  () => filterVariables.value,
   { errorPolicy: 'all', fetchPolicy: 'cache-and-network' }
 );
 const recipesRaw = computed(() => recipesData.value?.recipes || []);
@@ -373,37 +392,88 @@ const recipes = computed(() => {
 const pending = computed(() => recipesPending.value || categoriesPending.value);
 const error = computed(() => recipesError.value || categoriesError.value);
 
-// Refetch on page change
-watch(page, () => {
-  refetch();
-});
+const refetchWithCurrentVariables = () => {
+  return refetch({ ...filterVariables.value });
+};
+
+const goToPage = (targetPage) => {
+  const nextPage = Math.max(1, targetPage);
+  if (nextPage === page.value) return;
+  page.value = nextPage;
+  refetchWithCurrentVariables();
+};
+
+const goPreviousPage = () => {
+  goToPage(page.value - 1);
+};
+
+const goNextPage = () => {
+  goToPage(page.value + 1);
+};
+
+const refreshRecipes = (resetPage = false) => {
+  if (resetPage && page.value !== 1) {
+    page.value = 1;
+  }
+  refetchWithCurrentVariables();
+};
 
 // Reset to first page and refetch when filters change
 watch([searchQuery, selectedCategory, ingredientFilter, creatorFilter, prepTimeFilter], () => {
-  page.value = 1;
-  refetch();
+  refreshRecipes(true);
 });
 
 // Helper functions
 const formatDate = (dateString) => {
   if (!dateString) return '';
+  // Only format date on client to avoid SSR/client mismatch
+  if (typeof window === 'undefined') return dateString; // SSR: return raw string or placeholder
   const date = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.ceil(Math.abs(now - date) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  return date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 };
 
 const handleImageError = (e) => e.target.style.display = 'none';
 
+const normalizeImageUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^\/\//.test(raw)) return `https:${raw}`;
+  return `https://${raw}`;
+};
+
+const normalizedCategoryImageUrl = (category) => {
+  return normalizeImageUrl(category?.image_url);
+};
+
+const shouldShowCategoryImage = (category) => {
+  const categoryId = Number(category?.id);
+  const hasImage = normalizedCategoryImageUrl(category) !== '';
+  return hasImage && !failedCategoryImageIds.value.has(categoryId);
+};
+
+const markCategoryImageFailed = (categoryId) => {
+  const next = new Set(failedCategoryImageIds.value);
+  next.add(Number(categoryId));
+  failedCategoryImageIds.value = next;
+};
+
+const getNonEmptyText = (...values) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+  return '';
+};
+
 const getRecipeAuthorName = (recipe) => {
-  const userNameFromId = usersById.value[recipe.user_id];
-  if (userNameFromId && userNameFromId.trim() !== '') return userNameFromId;
-  if (recipe.user?.name && recipe.user.name.trim() !== '') return recipe.user.name;
-  return 'Unknown User';
+  return getNonEmptyText(usersById.value[recipe.user_id], recipe.user?.name) || 'Unknown User';
 };
 
 const getRecipeCategoryName = (recipe) => {
@@ -417,8 +487,7 @@ const clearFilters = () => {
   prepTimeFilter.value = '';
   ingredientFilter.value = '';
   creatorFilter.value = '';
-  page.value = 1;
-  refetch();
+  refreshRecipes(true);
   scrollToRecipes();
 };
 
@@ -429,8 +498,7 @@ const scrollToRecipes = () => {
 };
 
 const applyFilters = () => {
-  page.value = 1;
-  refetch();
+  refreshRecipes(true);
   scrollToRecipes();
 };
 

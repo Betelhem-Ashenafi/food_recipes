@@ -76,7 +76,7 @@
         <!-- Fallback if no images -->
         <img 
           v-else
-          :src="getRecipeImage(recipe)" 
+          :src="getRecipeImage()" 
           :alt="recipe.title"
           class="w-full h-96 object-cover"
         >
@@ -224,11 +224,11 @@
         </div>
 
         <!-- Social Actions -->
-        <div class="flex gap-4 mb-8 pb-8 border-b border-white/20">
+        <div class="flex flex-wrap gap-3 sm:gap-4 mb-8 pb-8 border-b border-white/20">
           <button 
             @click="toggleLike"
             :disabled="actionLoading"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-colors font-medium"
+            class="flex-1 min-w-[130px] sm:min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-colors font-medium text-sm sm:text-base"
             :class="isLiked ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-white/10 text-gray-300 hover:bg-white/20 border border-white/20'"
           >
             <svg class="w-5 h-5" :fill="isLiked ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,7 +240,7 @@
           <button 
             @click="toggleBookmark"
             :disabled="actionLoading"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-colors font-medium"
+            class="flex-1 min-w-[130px] sm:min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-colors font-medium text-sm sm:text-base"
             :class="isBookmarked ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-white/10 text-gray-300 hover:bg-white/20 border border-white/20'"
           >
             <svg class="w-5 h-5" :fill="isBookmarked ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
@@ -250,10 +250,10 @@
           </button>
 
           <button 
-            v-if="recipe.price > 0 && !hasPurchased && !isOwner"
+            v-if="Number(recipe.price) > 0 && !hasPurchased && !isOwner"
             @click="handleBuyRecipe"
             :disabled="buying"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all font-bold shadow-lg disabled:opacity-50"
+            class="w-full sm:flex-1 sm:w-auto flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition-all font-bold shadow-lg disabled:opacity-50"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
@@ -266,13 +266,16 @@
         <div class="mb-6">
           <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full text-sm font-medium bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 backdrop-blur-sm">
             <!-- Category Image -->
-            <div v-if="recipeCategory?.image_url" class="w-8 h-8 rounded-full overflow-hidden border-2 border-emerald-400/50 flex-shrink-0">
-              <img 
-                :src="recipeCategory.image_url" 
+            <div v-if="shouldShowRecipeCategoryImage" class="w-8 h-8 rounded-full overflow-hidden border-2 border-emerald-400/50 flex-shrink-0">
+              <img
+                :src="normalizedRecipeCategoryImageUrl"
                 :alt="recipeCategory.name"
                 class="w-full h-full object-cover"
-                @error="(e) => e.target.style.display = 'none'"
+                @error="recipeCategoryImageFailed = true"
               />
+            </div>
+            <div v-else class="w-8 h-8 rounded-full overflow-hidden border-2 border-emerald-400/50 flex-shrink-0 bg-emerald-500/40 flex items-center justify-center text-white text-xs font-bold">
+              {{ recipeCategoryInitial }}
             </div>
             <!-- Category Name -->
             <span>{{ recipeCategory?.name || 'Uncategorized' }}</span>
@@ -281,7 +284,7 @@
       </div>
 
       <!-- Ingredients - Only show if free, purchased, or owner -->
-      <div v-if="recipe.price === 0 || hasPurchased || isOwner" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <div v-if="canViewContent" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-3xl font-bold text-white mb-6 flex items-center">
           <span class="text-emerald-400 mr-2">🥕</span> Ingredients
         </h2>
@@ -320,7 +323,7 @@
       </div>
 
       <!-- Steps - Only show if free, purchased, or owner -->
-      <div v-if="recipe.price === 0 || hasPurchased || isOwner" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
+      <div v-if="canViewContent" class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-3xl font-bold text-white mb-6 flex items-center">
           <span class="text-emerald-400 mr-2">📋</span> Preparation Steps
         </h2>
@@ -345,7 +348,7 @@
       <!-- Rating Section -->
       <div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 mb-8">
         <h2 class="text-2xl font-bold text-white mb-4">Rate this Recipe</h2>
-        <div v-if="isAuthenticated && (recipe.price === 0 || hasPurchased || isOwner)">
+        <div v-if="canInteract">
           <button 
             v-for="star in 5" 
             :key="star"
@@ -367,9 +370,10 @@
           <span v-else class="text-gray-400 ml-3 text-sm">Click a star to rate</span>
         </div>
         <div v-else class="p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg text-center">
-          <p class="text-white">You must purchase this recipe to rate it.</p>
+          <p v-if="!isAuthenticated" class="text-white">Please log in to rate this recipe.</p>
+          <p v-else class="text-white">You must purchase this recipe to rate it.</p>
         </div>
-        <p v-if="ratingSuccess && isAuthenticated && (recipe.price === 0 || hasPurchased || isOwner)" class="text-emerald-400 text-sm mt-2">Rating submitted!</p>
+        <p v-if="ratingSuccess && canInteract" class="text-emerald-400 text-sm mt-2">Rating submitted!</p>
       </div>
 
       <!-- Comments Section -->
@@ -379,7 +383,7 @@
         </h2>
 
         <!-- Add Comment Form -->
-        <div v-if="isAuthenticated && (recipe.price === 0 || hasPurchased || isOwner)" class="mb-8">
+        <div v-if="canInteract" class="mb-8">
           <textarea 
             v-model="newComment"
             rows="3"
@@ -395,7 +399,8 @@
           </button>
         </div>
         <div v-else class="mb-8 p-4 bg-emerald-500/20 border border-emerald-400/50 rounded-lg text-center">
-          <p class="text-white mb-3">You must purchase this recipe to comment.</p>
+          <p v-if="!isAuthenticated" class="text-white mb-3">Please log in to comment on this recipe.</p>
+          <p v-else class="text-white mb-3">You must purchase this recipe to comment.</p>
         </div>
 
         <!-- Comments List -->
@@ -469,449 +474,167 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useApolloClient, useQuery } from '@vue/apollo-composable';
-import gql from 'graphql-tag';
 import { jwtDecode } from 'jwt-decode';
+import {
+  RECIPE_QUERY,
+  GET_ACCESSIBLE_RECIPE_QUERY,
+  CATEGORY_QUERY,
+  CATEGORIES_QUERY,
+  RECIPE_IMAGES_QUERY,
+  RECIPE_INGREDIENTS_QUERY,
+  RECIPE_STEPS_QUERY,
+  RECIPE_COMMENTS_QUERY,
+  RECIPE_COMMENTS_QUERY_CAMEL,
+  RECIPE_RATING_QUERY,
+  UNITS_QUERY,
+  CHECK_PURCHASES_RATINGS_QUERY,
+  CHECK_SOCIAL_QUERY,
+  LIKE_RECIPE_MUTATION,
+  UNLIKE_RECIPE_MUTATION,
+  BOOKMARK_RECIPE_MUTATION,
+  UNBOOKMARK_RECIPE_MUTATION,
+  RATE_RECIPE_MUTATION,
+  POST_COMMENT_MUTATION,
+  POST_COMMENT_MUTATION_CAMEL,
+  UPDATE_COMMENT_MUTATION,
+  DELETE_COMMENT_MUTATION,
+  UPDATE_RECIPE_INLINE_MUTATION
+} from '~/utils/recipe-detail.gql';
+import { initializePaymentAction, verifyPaymentAction } from '~/utils/payment-actions';
 
 const route = useRoute();
 const router = useRouter();
-const recipeId = parseInt(route.params.id);
+const recipeId = Number.parseInt(route.params.id, 10) || 0;
 
-const config = useRuntimeConfig();
-const getApiUrl = () => config.public?.apiUrl || 'http://localhost:8081';
-// Check if coming from payment success page
-const fromPayment = computed(() => route.query.fromPayment === 'true' || route.query.payment === 'success');
-const paymentTxRef = computed(() => route.query.tx_ref || route.query.txRef || route.query.txref || route.query['amp;tx_ref']);
 const token = useCookie('auth_token');
 const isAuthenticated = computed(() => !!token.value);
+const fromPayment = computed(() => route.query.fromPayment === 'true' || route.query.payment === 'success');
+const paymentTxRef = computed(() => route.query.tx_ref || route.query.txRef || route.query.txref || route.query['amp;tx_ref']);
 
-// Get user info from JWT - always return safe object structure
-const userInfo = computed(() => {
-  if (!token.value) return {};
-  try {
-    const decoded = jwtDecode(token.value);
-    // Ensure we always return an object with safe structure
-    if (!decoded || typeof decoded !== 'object') return {};
-    // Ensure claims is always an object, not null
-    if (decoded['https://hasura.io/jwt/claims']) {
-      if (typeof decoded['https://hasura.io/jwt/claims'] !== 'object' || decoded['https://hasura.io/jwt/claims'] === null) {
-        decoded['https://hasura.io/jwt/claims'] = {};
-      }
-    } else {
-      decoded['https://hasura.io/jwt/claims'] = {};
-    }
-    return decoded;
-  } catch {
-    return {};
-  }
-});
-const userName = computed(() => {
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (!claims || typeof claims !== 'object' || claims === null) return 'User';
-  return claims['x-hasura-user-name'] || 'User';
-});
-const userEmail = computed(() => {
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (!claims || typeof claims !== 'object' || claims === null) return '';
-  return claims['x-hasura-user-email'] || '';
-});
-const userId = computed(() => {
-  const claims = userInfo.value?.['https://hasura.io/jwt/claims'];
-  if (claims && typeof claims === 'object' && claims !== null) {
-    const id = claims['x-hasura-user-id'];
-    if (id) return parseInt(id);
-  }
-  if (process.client) {
-    const storedId = localStorage.getItem('user_id');
-    if (storedId) return parseInt(storedId);
-  }
-  return null;
-});
-const isOwner = computed(() => {
-  if (!isAuthenticated.value || !userId.value || !recipe.value) return false;
-  // Ensure both are numbers for comparison
-  const recipeUserId = typeof recipe.value.user_id === 'string' ? parseInt(recipe.value.user_id) : recipe.value.user_id;
-  const currentUserId = typeof userId.value === 'string' ? parseInt(userId.value) : userId.value;
-  return recipeUserId === currentUserId;
-});
+const { client } = useApolloClient();
 
-// GraphQL Query for Recipe (using Vue Apollo with Hasura)
-const query = gql`
-  query GetRecipe($id: Int!) {
-    recipes_by_pk(id: $id) {
-      id
-      title
-      description
-      price
-      created_at
-      preparation_time
-      user_id
-      category_id
-      user {
-        name
-      }
-    }
-  }
-`
-
-const CATEGORY_QUERY = gql`
-  query GetCategory($id: Int!) {
-    categories_by_pk(id: $id) {
-      id
-      name
-      image_url
-    }
-  }
-`;
-
-const CATEGORIES_QUERY = gql`
-  query GetCategories {
-    categories(order_by: { name: asc }) {
-      id
-      name
-      image_url
-    }
-  }
-`;
-
-const RECIPE_IMAGES_QUERY = gql`
-  query GetRecipeImages($id: Int!) {
-    recipe_images(where: { recipe_id: { _eq: $id } }, order_by: { id: asc }) {
-      id
-      recipe_id
-      url
-      is_featured
-    }
-  }
-`;
-
-const RECIPE_INGREDIENTS_QUERY = gql`
-  query GetRecipeIngredients($id: Int!) {
-    recipe_ingredients(where: { recipe_id: { _eq: $id } }, order_by: { id: asc }) {
-      id
-      name
-      quantity
-      unit_id
-      unit {
-        id
-        name
-      }
-    }
-  }
-`;
-
-const UNITS_QUERY = gql`
-  query GetUnits {
-    units(order_by: { id: asc }) {
-      id
-      name
-    }
-  }
-`;
-
-const RECIPE_STEPS_QUERY = gql`
-  query GetRecipeSteps($id: Int!) {
-    recipe_steps(where: { recipe_id: { _eq: $id } }, order_by: { step_number: asc }) {
-      id
-      step_number
-      instruction
-    }
-  }
-`;
-
-const RECIPE_COMMENTS_QUERY = gql`
-  query GetRecipeComments($id: Int!) {
-    comments(where: { recipe_id: { _eq: $id } }, order_by: { created_at: desc }) {
-      id
-      user_id
-      content
-      created_at
-      user {
-        name
-      }
-    }
-  }
-`;
-
-const RECIPE_COMMENTS_QUERY_CAMEL = gql`
-  query GetRecipeCommentsCamel($id: Int!) {
-    comments(where: { recipeId: { _eq: $id } }, order_by: { createdAt: desc }) {
-      id
-      userId
-      content
-      createdAt
-      user {
-        name
-      }
-    }
-  }
-`;
-
-const RECIPE_RATING_QUERY = gql`
-  query GetRecipeRating($id: Int!) {
-    recipes_by_pk(id: $id) {
-      id
-      recipe_average_rating
-      recipe_likes_count
-    }
-  }
-`;
-
-const CHECK_PURCHASES_RATINGS_QUERY = gql`
-  query CheckPurchasesRatings($recipeId: Int!, $userId: Int!) {
-    purchases(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      id
-      status
-    }
-    ratings(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      rating
-    }
-  }
-`;
-
-const USER_PURCHASES_QUERY = gql`
-  query GetUserPurchases($userId: Int!) {
-    purchases(where: { user_id: { _eq: $userId } }) {
-      id
-      recipe_id
-      status
-    }
-  }
-`;
-
-const CHECK_SOCIAL_QUERY = gql`
-  query CheckSocial($recipeId: Int!, $userId: Int!) {
-    likes(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      recipe_id
-    }
-    bookmarks(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      recipe_id
-    }
-  }
-`;
-
-const LIKE_RECIPE_MUTATION = gql`
-  mutation LikeRecipe($recipeId: Int!) {
-    insert_likes_one(object: { recipe_id: $recipeId }) {
-      recipe_id
-    }
-  }
-`;
-
-const UNLIKE_RECIPE_MUTATION = gql`
-  mutation UnlikeRecipe($recipeId: Int!, $userId: Int!) {
-    delete_likes(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      affected_rows
-    }
-  }
-`;
-
-const BOOKMARK_RECIPE_MUTATION = gql`
-  mutation BookmarkRecipe($recipeId: Int!) {
-    insert_bookmarks_one(object: { recipe_id: $recipeId }) {
-      recipe_id
-    }
-  }
-`;
-
-const UNBOOKMARK_RECIPE_MUTATION = gql`
-  mutation UnbookmarkRecipe($recipeId: Int!, $userId: Int!) {
-    delete_bookmarks(where: { recipe_id: { _eq: $recipeId }, user_id: { _eq: $userId } }) {
-      affected_rows
-    }
-  }
-`;
-
-const RATE_RECIPE_MUTATION = gql`
-  mutation RateRecipe($recipeId: Int!, $rating: Int!) {
-    insert_ratings_one(
-      object: { recipe_id: $recipeId, rating: $rating }
-      on_conflict: { constraint: ratings_recipe_user_unique, update_columns: [rating] }
-    ) {
-      rating
-    }
-  }
-`;
-
-const POST_COMMENT_MUTATION = gql`
-  mutation PostComment($recipeId: Int!, $content: String!) {
-    insert_comments_one(object: { recipe_id: $recipeId, content: $content }) {
-      id
-    }
-  }
-`;
-
-const UPDATE_COMMENT_MUTATION = gql`
-  mutation UpdateComment($id: Int!, $content: String!) {
-    update_comments(where: { id: { _eq: $id } }, _set: { content: $content }) {
-      affected_rows
-    }
-  }
-`;
-
-const DELETE_COMMENT_MUTATION = gql`
-  mutation DeleteComment($id: Int!) {
-    delete_comments(where: { id: { _eq: $id } }) {
-      affected_rows
-    }
-  }
-`;
-
-const UPDATE_RECIPE_INLINE_MUTATION = gql`
-  mutation UpdateRecipeInline(
-    $recipeId: Int!
-    $recipe: recipes_set_input!
-    $ingredients: [recipe_ingredients_insert_input!]!
-    $steps: [recipe_steps_insert_input!]!
-  ) {
-    update_recipes_by_pk(pk_columns: { id: $recipeId }, _set: $recipe) {
-      id
-    }
-    delete_recipe_ingredients(where: { recipe_id: { _eq: $recipeId } }) {
-      affected_rows
-    }
-    insert_recipe_ingredients(objects: $ingredients) {
-      affected_rows
-    }
-    delete_recipe_steps(where: { recipe_id: { _eq: $recipeId } }) {
-      affected_rows
-    }
-    insert_recipe_steps(objects: $steps) {
-      affected_rows
-    }
-  }
-`;
-
-const POST_COMMENT_MUTATION_CAMEL = gql`
-  mutation PostCommentCamel($recipeId: Int!, $userId: Int!, $content: String!) {
-    insert_comments_one(object: { recipeId: $recipeId, userId: $userId, content: $content }) {
-      id
-    }
-  }
-`;
-
-// Use useQuery with proper error handling
-// Skip query if recipeId is invalid
 const { result, loading: pending, error, refetch: refetchRecipe } = useQuery(
-  query, 
+  RECIPE_QUERY,
   () => ({ id: recipeId }),
-  { 
-    skip: () => !recipeId || recipeId === 0,
+  {
+    skip: () => !recipeId,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
-    returnPartialData: true
+    fetchPolicy: 'cache-and-network'
   }
 );
 
-const recipe = computed(() => {
-  if (!result.value || typeof result.value !== 'object') return null;
-  if (!result.value.recipes_by_pk) return null;
-  return result.value.recipes_by_pk;
-});
+const recipe = computed(() => result.value?.recipes_by_pk || null);
 
 const categoryId = computed(() => {
   const raw = recipe.value?.category_id;
-  const parsed = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+  const parsed = typeof raw === 'string' ? Number.parseInt(raw, 10) : raw;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 });
 
-const categoryQueryVars = computed(() => ({ id: categoryId.value ?? -1 }));
-
 const { result: categoryResult } = useQuery(
   CATEGORY_QUERY,
-  () => categoryQueryVars.value,
+  () => ({ id: categoryId.value ?? -1 }),
   {
     skip: () => !categoryId.value,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
-    returnPartialData: true
+    fetchPolicy: 'cache-and-network'
   }
 );
 
 const { result: categoriesResult } = useQuery(
   CATEGORIES_QUERY,
   () => ({}),
-  {
-    errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
-    returnPartialData: true
-  }
+  { errorPolicy: 'all', fetchPolicy: 'cache-and-network' }
 );
 
-const recipeCategory = computed(() => {
-  const category = categoryResult.value?.categories_by_pk;
-  return category || null;
+const recipeCategory = computed(() => categoryResult.value?.categories_by_pk || null);
+const allCategories = computed(() => categoriesResult.value?.categories || []);
+const recipeCategoryImageFailed = ref(false);
+
+const normalizeImageUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^\/\//.test(raw)) return `https:${raw}`;
+  return `https://${raw}`;
+};
+
+const normalizedRecipeCategoryImageUrl = computed(() => normalizeImageUrl(recipeCategory.value?.image_url));
+
+const shouldShowRecipeCategoryImage = computed(() => {
+  return !!normalizedRecipeCategoryImageUrl.value && !recipeCategoryImageFailed.value;
 });
 
-const allCategories = computed(() => categoriesResult.value?.categories || []);
+const recipeCategoryInitial = computed(() => {
+  const name = String(recipeCategory.value?.name || '').trim();
+  return name ? name.charAt(0).toUpperCase() : 'C';
+});
 
-const { client } = useApolloClient();
+const getClaims = () => {
+  if (!token.value) return {};
+  try {
+    const decoded = jwtDecode(token.value);
+    return decoded?.['https://hasura.io/jwt/claims'] || {};
+  } catch {
+    return {};
+  }
+};
+
+const userId = computed(() => {
+  const claimId = getClaims()['x-hasura-user-id'];
+  if (claimId) return Number.parseInt(claimId, 10);
+  if (process.client) {
+    const storedId = localStorage.getItem('user_id');
+    if (storedId) return Number.parseInt(storedId, 10);
+  }
+  return null;
+});
+
+const userName = computed(() => getClaims()['x-hasura-user-name'] || 'User');
+const userEmail = computed(() => getClaims()['x-hasura-user-email'] || '');
+
+const isOwner = computed(() => {
+  if (!recipe.value || !userId.value) return false;
+  return Number(recipe.value.user_id) === Number(userId.value);
+});
+
+const dbHasAccess = ref(false);
+
+const canViewContent = computed(() => {
+  if (!recipe.value) return false;
+  return Number(recipe.value.price) === 0 || hasPurchased.value || isOwner.value || dbHasAccess.value;
+});
+
+const canInteract = computed(() => isAuthenticated.value && canViewContent.value);
 
 const units = ref([]);
-const fetchUnits = async () => {
-  try {
-    const result = await client.query({
-      query: UNITS_QUERY,
-      fetchPolicy: 'network-only'
-    });
-    units.value = result?.data?.units || [];
-  } catch (err) {
-    console.error('Error fetching units:', err);
-    units.value = [];
-  }
-};
-
-// Fetch Recipe Images (REST API)
 const recipeImages = ref([]);
 const currentImageIndex = ref(0);
-
-const fetchRecipeImages = async () => {
-  try {
-    const result = await client.query({
-      query: RECIPE_IMAGES_QUERY,
-      variables: { id: recipeId },
-      fetchPolicy: 'network-only'
-    });
-    const images = result?.data?.recipe_images || [];
-    if (images.length > 0) {
-      recipeImages.value = images;
-      const featuredIndex = recipeImages.value.findIndex(img => img.is_featured);
-      currentImageIndex.value = featuredIndex >= 0 ? featuredIndex : 0;
-      return;
-    }
-  } catch (err) {
-    console.error('Error fetching images:', err);
-  }
-};
-
-const nextImage = () => {
-  if (currentImageIndex.value < recipeImages.value.length - 1) {
-    currentImageIndex.value++;
-  }
-};
-
-const previousImage = () => {
-  if (currentImageIndex.value > 0) {
-    currentImageIndex.value--;
-  }
-};
-
-// Fetch Ingredients (GraphQL)
 const ingredientsData = ref([]);
-const fetchIngredients = async () => {
-  try {
-    const result = await client.query({
-      query: RECIPE_INGREDIENTS_QUERY,
-      variables: { id: recipeId },
-      fetchPolicy: 'network-only'
-    });
-    ingredientsData.value = result?.data?.recipe_ingredients || [];
-  } catch (err) {
-    console.error('Error fetching ingredients:', err);
-    ingredientsData.value = [];
-  }
-};
+const stepsData = ref([]);
+const commentsData = ref([]);
+const ratingData = ref(null);
+const likeCount = ref(0);
+
+const isLiked = ref(false);
+const isBookmarked = ref(false);
+const hasPurchased = ref(false);
+
+const actionLoading = ref(false);
+const buying = ref(false);
+
+const userRating = ref(0);
+const currentUserRating = computed(() => Number(userRating.value) || 0);
+const ratingLoading = ref(false);
+const ratingSuccess = ref(false);
+
+const newComment = ref('');
+const commentLoading = ref(false);
+const editingCommentId = ref(null);
+const editingCommentText = ref('');
+const deletingCommentId = ref(null);
 
 const isInlineEditing = ref(false);
 const inlineEditLoading = ref(false);
@@ -923,8 +646,364 @@ const editForm = ref({
   price: 0,
   category_id: null
 });
-const editIngredients = ref([]);
-const editSteps = ref([]);
+const editIngredients = ref([{ name: '', quantity: '', unit_id: '' }]);
+const editSteps = ref([{ instruction: '' }]);
+const hasAutoOpenedInlineEdit = ref(false);
+
+const createIngredient = () => ({ name: '', quantity: '', unit_id: '' });
+const createStep = () => ({ instruction: '' });
+
+const requireAuth = () => {
+  if (!token.value || !userId.value) {
+    router.push('/login');
+    return false;
+  }
+  return true;
+};
+
+const fetchList = async (query, targetRef, options = {}) => {
+  try {
+    const resultQuery = await client.query({
+      query,
+      variables: options.variables || {},
+      fetchPolicy: 'network-only'
+    });
+    const data = resultQuery?.data?.[options.key] || [];
+    targetRef.value = options.transform ? options.transform(data) : data;
+  } catch {
+    targetRef.value = [];
+  }
+};
+
+const fetchUnits = () => fetchList(UNITS_QUERY, units, { key: 'units' });
+
+const fetchRecipeImages = async () => {
+  await fetchList(RECIPE_IMAGES_QUERY, recipeImages, { key: 'recipe_images', variables: { id: recipeId } });
+  const featuredIndex = recipeImages.value.findIndex((img) => img.is_featured);
+  currentImageIndex.value = featuredIndex >= 0 ? featuredIndex : 0;
+};
+
+const fetchIngredients = () => fetchList(RECIPE_INGREDIENTS_QUERY, ingredientsData, {
+  key: 'recipe_ingredients',
+  variables: { id: recipeId }
+});
+
+const fetchSteps = () => fetchList(RECIPE_STEPS_QUERY, stepsData, {
+  key: 'recipe_steps',
+  variables: { id: recipeId },
+  transform: (items) => [...items].sort((a, b) => a.step_number - b.step_number)
+});
+
+const fetchComments = async () => {
+  if (!recipeId) return;
+  try {
+    const resultQuery = await client.query({
+      query: RECIPE_COMMENTS_QUERY,
+      variables: { id: recipeId },
+      fetchPolicy: 'network-only'
+    });
+    const comments = resultQuery?.data?.comments || [];
+    commentsData.value = comments.map((comment) => ({
+      id: comment.id,
+      user_id: comment.user_id,
+      user_name: comment.user?.name || 'User',
+      content: comment.content,
+      created_at: comment.created_at
+    }));
+  } catch {
+    try {
+      const fallback = await client.query({
+        query: RECIPE_COMMENTS_QUERY_CAMEL,
+        variables: { id: recipeId },
+        fetchPolicy: 'network-only'
+      });
+      const comments = fallback?.data?.comments || [];
+      commentsData.value = comments.map((comment) => ({
+        id: comment.id,
+        user_id: comment.userId,
+        user_name: comment.user?.name || 'User',
+        content: comment.content,
+        created_at: comment.createdAt
+      }));
+    } catch {
+      commentsData.value = [];
+    }
+  }
+};
+
+const fetchRating = async () => {
+  try {
+    const resultQuery = await client.query({
+      query: RECIPE_RATING_QUERY,
+      variables: { id: recipeId },
+      fetchPolicy: 'network-only'
+    });
+    const data = resultQuery?.data?.recipes_by_pk;
+    ratingData.value = { average_rating: Number(data?.recipe_average_rating || 0) };
+    likeCount.value = Number(data?.recipe_likes_count || 0);
+  } catch {
+    ratingData.value = null;
+    likeCount.value = 0;
+  }
+};
+
+const loadProtectedContent = async () => {
+  if (!canViewContent.value) {
+    ingredientsData.value = [];
+    stepsData.value = [];
+    return;
+  }
+  await Promise.all([fetchIngredients(), fetchSteps()]);
+};
+
+const verifyPurchaseFromPayment = async () => {
+  if (!fromPayment.value || !token.value || !recipeId || !userId.value) return;
+  try {
+    const input = paymentTxRef.value
+      ? { tx_ref: paymentTxRef.value }
+      : { recipe_id: recipeId };
+
+    const data = await verifyPaymentAction(client, input);
+    if (data?.status === 'success') {
+      hasPurchased.value = true;
+    }
+  } catch {
+  }
+};
+
+const checkUserInteractions = async () => {
+  if (!token.value || !userId.value || !recipeId) return;
+  try {
+    const [purchaseResult, socialResult] = await Promise.all([
+      client.query({
+        query: CHECK_PURCHASES_RATINGS_QUERY,
+        variables: { recipeId, userId: userId.value },
+        fetchPolicy: 'network-only'
+      }),
+      client.query({
+        query: CHECK_SOCIAL_QUERY,
+        variables: { recipeId, userId: userId.value },
+        fetchPolicy: 'network-only'
+      }).catch(() => ({ data: {} }))
+    ]);
+
+    const purchases = purchaseResult?.data?.purchases || [];
+    const ratings = purchaseResult?.data?.ratings || [];
+    const likes = socialResult?.data?.likes || [];
+    const bookmarks = socialResult?.data?.bookmarks || [];
+
+    hasPurchased.value = purchases.length > 0;
+    isLiked.value = likes.length > 0;
+    isBookmarked.value = bookmarks.length > 0;
+    userRating.value = ratings[0]?.rating ? Number.parseInt(ratings[0].rating, 10) : 0;
+  } catch {
+  }
+};
+
+const checkAccessFromDb = async () => {
+  if (!token.value || !userId.value || !recipeId) {
+    dbHasAccess.value = false;
+    return;
+  }
+
+  try {
+    const resultQuery = await client.query({
+      query: GET_ACCESSIBLE_RECIPE_QUERY,
+      variables: { userId: userId.value, recipeId },
+      fetchPolicy: 'network-only'
+    });
+    const rows = resultQuery?.data?.get_accessible_recipe || [];
+    dbHasAccess.value = rows.length > 0;
+  } catch {
+    dbHasAccess.value = false;
+  }
+};
+
+const nextImage = () => {
+  if (currentImageIndex.value < recipeImages.value.length - 1) {
+    currentImageIndex.value += 1;
+  }
+};
+
+const previousImage = () => {
+  if (currentImageIndex.value > 0) {
+    currentImageIndex.value -= 1;
+  }
+};
+
+const toggleLike = async () => {
+  if (!requireAuth()) return;
+  actionLoading.value = true;
+  try {
+    if (isLiked.value) {
+      await client.mutate({
+        mutation: UNLIKE_RECIPE_MUTATION,
+        variables: { recipeId, userId: userId.value }
+      });
+      isLiked.value = false;
+    } else {
+      await client.mutate({
+        mutation: LIKE_RECIPE_MUTATION,
+        variables: { recipeId }
+      });
+      isLiked.value = true;
+    }
+    await fetchRating();
+  } finally {
+    actionLoading.value = false;
+  }
+};
+
+const toggleBookmark = async () => {
+  if (!requireAuth()) return;
+  actionLoading.value = true;
+  try {
+    if (isBookmarked.value) {
+      await client.mutate({
+        mutation: UNBOOKMARK_RECIPE_MUTATION,
+        variables: { recipeId, userId: userId.value }
+      });
+      isBookmarked.value = false;
+    } else {
+      await client.mutate({
+        mutation: BOOKMARK_RECIPE_MUTATION,
+        variables: { recipeId }
+      });
+      isBookmarked.value = true;
+    }
+  } finally {
+    actionLoading.value = false;
+  }
+};
+
+const submitRating = async (rating) => {
+  if (!requireAuth() || rating < 1 || rating > 5) return;
+  ratingLoading.value = true;
+  ratingSuccess.value = false;
+  try {
+    await client.mutate({
+      mutation: RATE_RECIPE_MUTATION,
+      variables: { recipeId, rating }
+    });
+    userRating.value = Number(rating);
+    ratingSuccess.value = true;
+    await fetchRating();
+    setTimeout(() => {
+      ratingSuccess.value = false;
+    }, 3000);
+  } finally {
+    ratingLoading.value = false;
+  }
+};
+
+const isCommentOwner = (comment) => Number(comment?.user_id) === Number(userId.value);
+
+const startEditComment = (comment) => {
+  if (!isCommentOwner(comment)) return;
+  editingCommentId.value = comment.id;
+  editingCommentText.value = comment.content || '';
+};
+
+const cancelEditComment = () => {
+  editingCommentId.value = null;
+  editingCommentText.value = '';
+};
+
+const saveEditedComment = async (comment) => {
+  if (!requireAuth() || !isCommentOwner(comment) || !editingCommentText.value.trim()) return;
+  commentLoading.value = true;
+  try {
+    await client.mutate({
+      mutation: UPDATE_COMMENT_MUTATION,
+      variables: { id: comment.id, content: editingCommentText.value.trim() }
+    });
+    cancelEditComment();
+    await fetchComments();
+  } finally {
+    commentLoading.value = false;
+  }
+};
+
+const deleteComment = async (comment) => {
+  if (!requireAuth() || !isCommentOwner(comment)) return;
+  if (!confirm('Delete this comment?')) return;
+  deletingCommentId.value = comment.id;
+  try {
+    await client.mutate({
+      mutation: DELETE_COMMENT_MUTATION,
+      variables: { id: comment.id }
+    });
+    if (editingCommentId.value === comment.id) {
+      cancelEditComment();
+    }
+    await fetchComments();
+  } finally {
+    deletingCommentId.value = null;
+  }
+};
+
+const submitComment = async () => {
+  if (!requireAuth() || !newComment.value.trim()) return;
+  commentLoading.value = true;
+  const content = newComment.value.trim();
+  try {
+    try {
+      await client.mutate({
+        mutation: POST_COMMENT_MUTATION,
+        variables: { recipeId, content }
+      });
+    } catch {
+      await client.mutate({
+        mutation: POST_COMMENT_MUTATION_CAMEL,
+        variables: { recipeId, userId: userId.value, content }
+      });
+    }
+    newComment.value = '';
+    await fetchComments();
+  } finally {
+    commentLoading.value = false;
+  }
+};
+
+const handleBuyRecipe = async () => {
+  if (!requireAuth() || !recipe.value) return;
+  buying.value = true;
+  try {
+    const normalizedUserName = (userName.value || '').trim() || 'Customer';
+    const data = await initializePaymentAction(client, {
+      amount: String(recipe.value.price),
+      email: userEmail.value || 'testuser@gmail.com',
+      user_name: normalizedUserName,
+      recipe_id: recipeId
+    });
+
+    if (data?.status === 'success' && !data?.checkout_url) {
+      hasPurchased.value = true;
+      await loadProtectedContent();
+      const q = new URLSearchParams({
+        recipe_id: String(recipeId),
+        status: 'success',
+        message: String(data?.message || 'Payment already confirmed')
+      });
+      if (data?.tx_ref) {
+        q.set('tx_ref', String(data.tx_ref));
+      }
+      await navigateTo(`/payment/success?${q.toString()}`);
+      return;
+    }
+    if (process.client) {
+      sessionStorage.setItem('pending_payment_recipe_id', String(recipeId));
+    }
+    if (data?.checkout_url) {
+      window.location.href = data.checkout_url;
+    }
+  } catch (error) {
+    console.error('Failed to initialize payment:', error);
+    alert('Failed to initialize payment. Please try again.');
+  } finally {
+    buying.value = false;
+  }
+};
 
 const startInlineEdit = async () => {
   if (!isOwner.value || !recipe.value) return;
@@ -940,18 +1019,18 @@ const startInlineEdit = async () => {
     category_id: recipe.value.category_id || null
   };
 
-  editIngredients.value = (ingredientsData.value || []).map((ingredient) => ({
-    name: ingredient.name || '',
-    quantity: ingredient.quantity || '',
-    unit_id: ingredient.unit_id ? String(ingredient.unit_id) : String(ingredient.unit?.id || '')
+  editIngredients.value = (ingredientsData.value || []).map((item) => ({
+    name: item.name || '',
+    quantity: item.quantity || '',
+    unit_id: String(item.unit_id || item.unit?.id || '')
   }));
   if (editIngredients.value.length === 0) {
-    editIngredients.value = [{ name: '', quantity: '', unit_id: '' }];
+    editIngredients.value = [createIngredient()];
   }
 
   editSteps.value = (stepsData.value || []).map((step) => ({ instruction: step.instruction || '' }));
   if (editSteps.value.length === 0) {
-    editSteps.value = [{ instruction: '' }];
+    editSteps.value = [createStep()];
   }
 
   inlineEditError.value = '';
@@ -964,7 +1043,7 @@ const cancelInlineEdit = () => {
 };
 
 const addEditIngredient = () => {
-  editIngredients.value.push({ name: '', quantity: '', unit_id: '' });
+  editIngredients.value.push(createIngredient());
 };
 
 const removeEditIngredient = (index) => {
@@ -974,7 +1053,7 @@ const removeEditIngredient = (index) => {
 };
 
 const addEditStep = () => {
-  editSteps.value.push({ instruction: '' });
+  editSteps.value.push(createStep());
 };
 
 const removeEditStep = (index) => {
@@ -987,7 +1066,6 @@ const saveInlineEdit = async () => {
   if (!isOwner.value || !recipe.value) return;
 
   inlineEditError.value = '';
-
   if (!editForm.value.title?.trim() || editForm.value.title.trim().length < 3) {
     inlineEditError.value = 'Title must be at least 3 characters.';
     return;
@@ -1009,13 +1087,9 @@ const saveInlineEdit = async () => {
     return;
   }
 
-  const validIngredients = editIngredients.value.filter((ingredient) => ingredient.name?.trim());
-  if (validIngredients.length === 0) {
-    inlineEditError.value = 'Please add at least one ingredient.';
-    return;
-  }
-  if (validIngredients.some((ingredient) => !ingredient.unit_id)) {
-    inlineEditError.value = 'Please select a unit for every ingredient.';
+  const validIngredients = editIngredients.value.filter((item) => item.name?.trim());
+  if (validIngredients.length === 0 || validIngredients.some((item) => !item.unit_id)) {
+    inlineEditError.value = 'Please add valid ingredients and select units.';
     return;
   }
 
@@ -1034,15 +1108,15 @@ const saveInlineEdit = async () => {
         recipe: {
           title: editForm.value.title.trim(),
           description: editForm.value.description.trim(),
-          preparation_time: parseInt(editForm.value.preparation_time, 10),
-          price: parseFloat(editForm.value.price) || 0,
-          category_id: parseInt(editForm.value.category_id, 10)
+          preparation_time: Number.parseInt(editForm.value.preparation_time, 10),
+          price: Number.parseFloat(editForm.value.price) || 0,
+          category_id: Number.parseInt(editForm.value.category_id, 10)
         },
-        ingredients: validIngredients.map((ingredient) => ({
+        ingredients: validIngredients.map((item) => ({
           recipe_id: recipeId,
-          name: ingredient.name.trim(),
-          quantity: ingredient.quantity || '',
-          unit_id: parseInt(ingredient.unit_id, 10)
+          name: item.name.trim(),
+          quantity: item.quantity || '',
+          unit_id: Number.parseInt(item.unit_id, 10)
         })),
         steps: validSteps.map((step, index) => ({
           recipe_id: recipeId,
@@ -1053,740 +1127,61 @@ const saveInlineEdit = async () => {
     });
 
     await refetchRecipe({ id: recipeId });
-    await Promise.all([fetchIngredients(), fetchSteps(), fetchRating()]);
+    await Promise.all([fetchRating(), fetchIngredients(), fetchSteps()]);
     isInlineEditing.value = false;
   } catch (err) {
-    console.error('[INLINE_EDIT] Exception:', err);
-    inlineEditError.value = err.message || 'Failed to update recipe.';
+    inlineEditError.value = err?.message || 'Failed to update recipe.';
   } finally {
     inlineEditLoading.value = false;
   }
 };
 
-// Fetch Steps (GraphQL)
-const stepsData = ref([]);
-const fetchSteps = async () => {
-  try {
-    const result = await client.query({
-      query: RECIPE_STEPS_QUERY,
-      variables: { id: recipeId },
-      fetchPolicy: 'network-only'
-    });
-    const data = result?.data?.recipe_steps || [];
-    const sortedSteps = [...data].sort((a, b) => a.step_number - b.step_number);
-    stepsData.value = sortedSteps;
-  } catch (err) {
-    console.error('Error fetching steps:', err);
-    stepsData.value = [];
-  }
-};
-
-// Fetch Comments (REST API)
-const commentsData = ref([]);
-const fetchComments = async () => {
-  if (!recipeId) {
-    console.warn('[COMMENTS] No recipe ID, skipping fetch');
-    return;
-  }
-  try {
-    console.log(`[COMMENTS] Fetching comments for recipe ${recipeId}`);
-    let result;
-    try {
-      result = await client.query({
-        query: RECIPE_COMMENTS_QUERY,
-        variables: { id: recipeId },
-        fetchPolicy: 'network-only'
-      });
-    } catch (err) {
-      const message = err?.message || '';
-      if (message.includes('recipe_id') || message.includes('created_at') || message.includes('user_id')) {
-        result = await client.query({
-          query: RECIPE_COMMENTS_QUERY_CAMEL,
-          variables: { id: recipeId },
-          fetchPolicy: 'network-only'
-        });
-      } else {
-        throw err;
-      }
-    }
-    const comments = result?.data?.comments || [];
-    commentsData.value = comments.map((comment) => ({
-      id: comment.id,
-      user_id: comment.user_id ?? comment.userId,
-      user_name: comment.user?.name || 'User',
-      content: comment.content,
-      created_at: comment.created_at ?? comment.createdAt
-    }));
-    console.log(`[COMMENTS] Loaded ${commentsData.value.length} comments`);
-  } catch (err) {
-    console.error('[COMMENTS] Error fetching comments:', err);
-    commentsData.value = [];
-  }
-};
-
-// Fetch Rating (REST API)
-const ratingData = ref(null);
-const likeCount = ref(0);
-const fetchRating = async () => {
-  if (!recipeId) {
-    console.warn('[RATING] No recipe ID, skipping fetch');
-    return;
-  }
-  try {
-    console.log(`[RATING] Fetching rating for recipe ${recipeId}`);
-    const result = await client.query({
-      query: RECIPE_RATING_QUERY,
-      variables: { id: recipeId },
-      fetchPolicy: 'network-only'
-    });
-
-    const recipeStats = result?.data?.recipes_by_pk;
-    const averageRating = Number(recipeStats?.recipe_average_rating ?? 0);
-    likeCount.value = Number(recipeStats?.recipe_likes_count ?? 0);
-    ratingData.value = { average_rating: averageRating };
-    console.log(`[RATING] Loaded rating:`, ratingData.value);
-  } catch (err) {
-    console.error('[RATING] Error fetching rating/likes stats:', err);
-    ratingData.value = null;
-    likeCount.value = 0;
-  }
-};
-
-// Social Features State
-const isLiked = ref(false);
-const isBookmarked = ref(false);
-const actionLoading = ref(false);
-const hasPurchased = ref(false);
-
-const verifyPurchaseFromPayment = async () => {
-  if (!fromPayment.value || !token.value || !recipeId) return false;
-  try {
-    const queryParam = paymentTxRef.value ? `tx_ref=${paymentTxRef.value}` : `recipe_id=${recipeId}`;
-    const response = await fetch(`${getApiUrl()}/payment/verify?${queryParam}`, {
-      headers: {
-        Authorization: `Bearer ${token.value}`
-      }
-    });
-    if (!response.ok) {
-      return false;
-    }
-    const data = await response.json();
-    if (data.status === 'success') {
-      hasPurchased.value = true;
-      return true;
-    }
-  } catch (err) {
-    console.error('Error verifying purchase from payment:', err);
-  }
-  return false;
-};
-
-// Toggle Like
-const toggleLike = async () => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  actionLoading.value = true;
-  
-  try {
-    if (!userId.value) {
-      router.push('/login');
-      return;
-    }
-    if (isLiked.value) {
-      await client.mutate({
-        mutation: UNLIKE_RECIPE_MUTATION,
-        variables: { recipeId, userId: userId.value }
-      });
-      isLiked.value = false;
-    } else {
-      await client.mutate({
-        mutation: LIKE_RECIPE_MUTATION,
-        variables: { recipeId, userId: userId.value }
-      });
-      isLiked.value = true;
-    }
-    await fetchRating();
-  } catch (err) {
-    console.error('[LIKE] Exception:', err);
-    alert(`Error: ${err.message || 'Failed to like recipe. Please check if backend is running.'}`);
-  } finally {
-    actionLoading.value = false;
-  }
-};
-
-// Toggle Bookmark
-const toggleBookmark = async () => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  actionLoading.value = true;
-  
-  try {
-    if (!userId.value) {
-      router.push('/login');
-      return;
-    }
-    if (isBookmarked.value) {
-      await client.mutate({
-        mutation: UNBOOKMARK_RECIPE_MUTATION,
-        variables: { recipeId, userId: userId.value }
-      });
-      isBookmarked.value = false;
-    } else {
-      await client.mutate({
-        mutation: BOOKMARK_RECIPE_MUTATION,
-        variables: { recipeId, userId: userId.value }
-      });
-      isBookmarked.value = true;
-    }
-  } catch (err) {
-    console.error('[BOOKMARK] Exception:', err);
-    alert(`Error: ${err.message || 'Failed to bookmark recipe. Please check if backend is running.'}`);
-  } finally {
-    actionLoading.value = false;
-  }
-};
-
-// Rating
-const userRating = ref(0);
-const ratingLoading = ref(false);
-const ratingSuccess = ref(false);
-
-// Computed to ensure reactivity for star display
-const currentUserRating = computed(() => {
-  const rating = Number(userRating.value) || 0;
-  console.log('[RATING] Current user rating computed:', rating);
-  return rating;
-});
-
-const submitRating = async (rating) => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  
-  if (rating < 1 || rating > 5) {
-    alert('Rating must be between 1 and 5');
-    return;
-  }
-  
-  ratingLoading.value = true;
-  ratingSuccess.value = false;
-  
-  try {
-    console.log(`[RATING] Submitting rating ${rating} for recipe ${recipeId}`);
-    if (!userId.value) {
-      router.push('/login');
-      return;
-    }
-    await client.mutate({
-      mutation: RATE_RECIPE_MUTATION,
-      variables: { recipeId, rating }
-    });
-    userRating.value = parseInt(rating);
-    console.log(`[RATING] userRating.value set to: ${userRating.value}`);
-    ratingSuccess.value = true;
-    await fetchRating();
-    setTimeout(() => { ratingSuccess.value = false; }, 3000);
-    alert('Rating submitted successfully!');
-  } catch (err) {
-    console.error('[RATING] Exception:', err);
-    alert('Failed to submit rating. Please check if backend is running.');
-  } finally {
-    ratingLoading.value = false;
-  }
-};
-
-// Comments
-const newComment = ref('');
-const commentLoading = ref(false);
-const editingCommentId = ref(null);
-const editingCommentText = ref('');
-const deletingCommentId = ref(null);
-
-const isCommentOwner = (comment) => {
-  if (!isAuthenticated.value || !userId.value || !comment) return false;
-  const commentUserId = typeof comment.user_id === 'string' ? parseInt(comment.user_id, 10) : comment.user_id;
-  const currentUserId = typeof userId.value === 'string' ? parseInt(userId.value, 10) : userId.value;
-  return Number(commentUserId) === Number(currentUserId);
-};
-
-const startEditComment = (comment) => {
-  if (!isCommentOwner(comment)) return;
-  editingCommentId.value = comment.id;
-  editingCommentText.value = comment.content || '';
-};
-
-const cancelEditComment = () => {
-  editingCommentId.value = null;
-  editingCommentText.value = '';
-};
-
-const saveEditedComment = async (comment) => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  if (!isCommentOwner(comment)) {
-    alert('You can only edit your own comments.');
-    return;
-  }
-  if (!editingCommentText.value.trim()) {
-    alert('Comment cannot be empty.');
-    return;
-  }
-
-  commentLoading.value = true;
-  try {
-    const result = await client.mutate({
-      mutation: UPDATE_COMMENT_MUTATION,
-      variables: { id: comment.id, content: editingCommentText.value.trim() }
-    });
-    const affectedRows = result?.data?.update_comments?.affected_rows ?? 0;
-    if (affectedRows < 1) {
-      throw new Error('Comment update was not permitted.');
-    }
-    cancelEditComment();
-    await fetchComments();
-  } catch (err) {
-    console.error('[COMMENT] Edit exception:', err);
-    alert(`Error: ${err.message || 'Failed to edit comment.'}`);
-  } finally {
-    commentLoading.value = false;
-  }
-};
-
-const deleteComment = async (comment) => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  if (!isCommentOwner(comment)) {
-    alert('You can only delete your own comments.');
-    return;
-  }
-  if (!confirm('Delete this comment?')) {
-    return;
-  }
-
-  deletingCommentId.value = comment.id;
-  try {
-    const result = await client.mutate({
-      mutation: DELETE_COMMENT_MUTATION,
-      variables: { id: comment.id }
-    });
-    const affectedRows = result?.data?.delete_comments?.affected_rows ?? 0;
-    if (affectedRows < 1) {
-      throw new Error('Comment delete was not permitted.');
-    }
-    if (editingCommentId.value === comment.id) {
-      cancelEditComment();
-    }
-    await fetchComments();
-  } catch (err) {
-    console.error('[COMMENT] Delete exception:', err);
-    alert(`Error: ${err.message || 'Failed to delete comment.'}`);
-  } finally {
-    deletingCommentId.value = null;
-  }
-};
-
-const submitComment = async () => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  if (!newComment.value.trim()) {
-    alert('Please enter a comment');
-    return;
-  }
-  commentLoading.value = true;
-  
-  try {
-    if (!userId.value) {
-      router.push('/login');
-      return;
-    }
-    try {
-      await client.mutate({
-        mutation: POST_COMMENT_MUTATION,
-        variables: { recipeId, userId: userId.value, content: newComment.value.trim() }
-      });
-    } catch (err) {
-      const message = err?.message || '';
-      if (message.includes('recipe_id') || message.includes('user_id')) {
-        await client.mutate({
-          mutation: POST_COMMENT_MUTATION_CAMEL,
-          variables: { recipeId, userId: userId.value, content: newComment.value.trim() }
-        });
-      } else {
-        throw err;
-      }
-    }
-    newComment.value = '';
-    await fetchComments();
-  } catch (err) {
-    console.error('[COMMENT] Exception:', err);
-    alert(`Error: ${err.message || 'Failed to post comment. Please check if backend is running.'}`);
-  } finally {
-    commentLoading.value = false;
-  }
-};
-
-// Buy Recipe
-const buying = ref(false);
-const handleBuyRecipe = async () => {
-  if (!token.value) {
-    router.push('/login');
-    return;
-  }
-  if (!recipe.value) return;
-  buying.value = true;
-  
-  try {
-      const response = await fetch(`${getApiUrl()}/payment/initialize`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token.value}`
-      },
-      body: JSON.stringify({
-        amount: recipe.value.price.toString(),
-        email: userEmail.value || 'testuser@gmail.com',
-        first_name: userName.value?.split(' ')[0] || 'Test',
-        last_name: userName.value?.split(' ').slice(1).join(' ') || 'User',
-        recipe_id: recipeId
-      })
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      // Store recipe ID in sessionStorage as backup for payment success page
-      if (process.client) {
-        sessionStorage.setItem('pending_payment_recipe_id', recipeId.toString());
-      }
-      window.location.href = data.checkout_url;
-    } else {
-      const rawText = await response.text().catch(() => 'Payment initialization failed');
-      let errorMessage = 'Failed to initialize payment. Please try again.';
-      try {
-        const errorData = JSON.parse(rawText);
-        errorMessage = errorData.error || errorData.message || errorMessage;
-        console.error('Payment initialization error:', errorData);
-      } catch {
-        errorMessage = rawText || errorMessage;
-        console.error('Payment initialization error:', rawText);
-      }
-      alert(`Payment Error: ${errorMessage}`);
-    }
-  } catch (err) {
-    console.error('Error initializing payment:', err);
-    alert('Failed to initialize payment. Please check your connection and try again.');
-  } finally {
-    buying.value = false;
-  }
-};
-
-// Get real image based on recipe title
-const getRecipeImage = (recipe) => {
-  if (recipeImages.value?.length > 0) {
+const getRecipeImage = () => {
+  if (recipeImages.value.length > 0) {
     const featured = recipeImages.value.find((img) => img.is_featured);
     return featured?.url || recipeImages.value[0]?.url;
   }
-  
-  const title = recipe?.title?.toLowerCase() || '';
-  
-  if (title.includes('avocado') || title.includes('salad')) {
-    return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=80';
-  }
-  if (title.includes('chocolate') || title.includes('cake')) {
-    return 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=1200&q=80';
-  }
-  if (title.includes('pasta')) {
-    return 'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=1200&q=80';
-  }
-  if (title.includes('pizza')) {
-    return 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80';
-  }
-  if (title.includes('burger')) {
-    return 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80';
-  }
-  if (title.includes('sushi')) {
-    return 'https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?auto=format&fit=crop&w=1200&q=80';
-  }
-  
   return 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=1200&q=80';
 };
 
-// Format Date
 const formatDate = (dateString) => {
   if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString();
+  return new Date(dateString).toLocaleDateString();
 };
 
-// Helper function to check if token is expired
-const isTokenExpired = () => {
-  if (!token.value) return true;
-  try {
-    const decoded = jwtDecode(token.value);
-    if (decoded.exp && decoded.exp < Date.now() / 1000) {
-      return true;
-    }
-    return false;
-  } catch (err) {
-    return true;
-  }
-};
-
-// Check if user liked/bookmarked/purchased this recipe
-const checkUserInteractions = async () => {
-  if (!token.value || !recipe.value) {
-    console.log('Skipping interaction check - no token or recipe');
-    return;
-  }
-  
-  // Check if token is expired
-  if (isTokenExpired()) {
-    console.warn('⚠️ Token is expired - please log in again');
-    // Clear expired token
-    token.value = null;
-    return;
-  }
-  
-  try {
-    if (!userId.value) {
-      router.push('/login');
-      return;
-    }
-    const result = await client.query({
-      query: CHECK_PURCHASES_RATINGS_QUERY,
-      variables: { recipeId, userId: userId.value },
-      fetchPolicy: 'network-only'
-    });
-    let purchases = result?.data?.purchases || [];
-    const ratings = result?.data?.ratings || [];
-
-    if (purchases.length === 0) {
-      try {
-        const userPurchasesResult = await client.query({
-          query: USER_PURCHASES_QUERY,
-          variables: { userId: userId.value },
-          fetchPolicy: 'network-only'
-        });
-        const allPurchases = userPurchasesResult?.data?.purchases || [];
-        purchases = allPurchases.filter((p) => p?.recipe_id === recipeId);
-      } catch (err) {
-        console.warn('User purchases fallback query failed:', err);
-      }
-    }
-
-    try {
-      const socialResult = await client.query({
-        query: CHECK_SOCIAL_QUERY,
-        variables: { recipeId, userId: userId.value },
-        fetchPolicy: 'network-only'
-      });
-      const likes = socialResult?.data?.likes || [];
-      const bookmarks = socialResult?.data?.bookmarks || [];
-      isLiked.value = likes.length > 0;
-      isBookmarked.value = bookmarks.length > 0;
-    } catch (err) {
-      console.warn('Social query failed (likes/bookmarks not tracked):', err);
-      isLiked.value = false;
-      isBookmarked.value = false;
-    }
-
-    const wasPurchased = hasPurchased.value;
-    const isSuccessfulPurchase = (status) => {
-      const normalized = String(status || '').toLowerCase().trim();
-      return normalized === 'success' || normalized === 'paid' || normalized === 'completed';
-    };
-    const hasAnyPurchase = purchases.length > 0;
-    hasPurchased.value = purchases.some((p) => isSuccessfulPurchase(p?.status)) || hasAnyPurchase;
-
-    console.log('🔍 Purchase check result:', {
-      purchased: hasPurchased.value,
-      wasPurchased: wasPurchased,
-      recipeId: recipeId,
-      price: recipe.value.price,
-      isOwner: isOwner.value
-    });
-
-    if (hasPurchased.value && !wasPurchased) {
-      console.log('✅ Purchase status changed to TRUE - will load content');
-      await loadContentIfAllowed();
-    }
-
-    if (ratings.length > 0 && ratings[0].rating) {
-      userRating.value = parseInt(ratings[0].rating);
-      console.log(`⭐ User's previous rating set to: ${userRating.value} stars`);
-    } else {
-      userRating.value = 0;
-      console.log('⭐ User has not rated this recipe yet');
-    }
-  } catch (err) {
-    console.error('Error checking interactions:', err);
-  }
-};
-
-// Load content if user has access (free, purchased, or owner)
-const loadContentIfAllowed = async () => {
-  if (!recipe.value) {
-    console.log('Cannot load content - no recipe');
-    return;
-  }
-  
-  const canViewContent = recipe.value.price === 0 || hasPurchased.value || isOwner.value;
-  
-  console.log('📋 Checking content access:', {
-    price: recipe.value.price,
-    hasPurchased: hasPurchased.value,
-    isOwner: isOwner.value,
-    userId: userId.value,
-    recipeUserId: recipe.value.user_id,
-    canViewContent: canViewContent
-  });
-  
-  if (canViewContent) {
-    console.log('✅ User has access - loading ingredients and steps...');
-    try {
-      await Promise.all([
-        fetchIngredients(),
-        fetchSteps()
-      ]);
-      console.log('✅ Content loaded successfully');
-    } catch (err) {
-      console.error('❌ Error loading content:', err);
-    }
-  } else {
-    console.log('❌ User does not have access to content');
-  }
-};
-
-// Watch for recipe changes and check interactions
-watch(() => recipe.value, async (newRecipe) => {
-  if (newRecipe) {
-    console.log('📝 Recipe loaded:', newRecipe.title);
-    await fetchRecipeImages();
-    
-    // Fetch comments and ratings (these are public, always fetch)
-    await Promise.all([
-      fetchComments(),
-      fetchRating()
-    ]);
-    
-    // If returning from payment, attempt verification before checking interactions
+watch(
+  () => recipe.value,
+  async (loadedRecipe) => {
+    if (!loadedRecipe) return;
+    await Promise.all([fetchRecipeImages(), fetchComments(), fetchRating()]);
     await verifyPurchaseFromPayment();
+    await checkUserInteractions();
+    await checkAccessFromDb();
+    await loadProtectedContent();
 
-    // Check user interactions first (including purchase status)
-    if (token.value) {
-      await checkUserInteractions();
+    if (!hasAutoOpenedInlineEdit.value && isOwner.value && String(route.query.edit || '') === '1') {
+      hasAutoOpenedInlineEdit.value = true;
+      await startInlineEdit();
     }
-    
-    // Load content after checking interactions
-    await loadContentIfAllowed();
-    
-    // Also check after a short delay to catch reactive updates
-    setTimeout(() => {
-      loadContentIfAllowed();
-    }, 500);
-  }
-}, { immediate: false });
+  },
+  { immediate: true }
+);
 
-// Watch for purchase status changes - CRITICAL for showing content after payment
-watch(() => hasPurchased.value, async (purchased, oldValue) => {
-  console.log('💰 Purchase status changed:', { 
-    purchased, 
-    oldValue, 
-    recipeId: recipeId,
-    recipePrice: recipe.value?.price 
-  });
-  
-  if (purchased && recipe.value) {
-    // User just purchased, load content immediately
-    console.log('✅ Purchase confirmed! Loading full recipe content...');
-    await loadContentIfAllowed();
+watch(
+  () => recipeCategory.value?.image_url,
+  () => {
+    // Reset failure flag when category/image changes.
+    recipeCategoryImageFailed.value = false;
   }
-}, { immediate: false });
+);
 
-// Watch for owner status changes
-watch(() => isOwner.value, async (owner) => {
-  console.log('👤 Owner status changed:', { owner, recipeId: recipeId });
-  
-  if (owner && recipe.value) {
-    // Owner always has access, load content
-    console.log('✅ User is owner - loading content...');
-    await loadContentIfAllowed();
-  }
-});
-
-// Load data on mount
-onMounted(async () => {
-  console.log('🚀 Component mounted, recipe:', recipe.value?.title || 'not loaded yet');
-  await fetchUnits();
-  
-  // Comments and ratings are public - fetch them immediately regardless of recipe state
-  console.log('📥 Fetching public data (comments, ratings)...');
-  await Promise.all([
-    fetchComments(),
-    fetchRating()
-  ]);
-  
-  // Wait for recipe to load from Apollo query
-  if (recipe.value) {
-    // If coming from payment, check purchase status with retries
-    if (fromPayment.value && token.value) {
-      console.log('💳 Coming from payment page - checking purchase status with retries...');
-      
-      // Check purchase status multiple times with delays to ensure backend has processed
-      const checkPurchaseWithRetry = async (attempt = 1, maxAttempts = 5) => {
-        console.log(`🔄 Purchase check attempt ${attempt}/${maxAttempts}...`);
-        await checkUserInteractions();
-        
-        // If still not purchased and we have more attempts, retry
-        if (!hasPurchased.value && attempt < maxAttempts) {
-          const delay = attempt * 1000; // Increasing delay: 1s, 2s, 3s, 4s
-          console.log(`⏳ Retrying purchase check in ${delay}ms...`);
-          setTimeout(() => checkPurchaseWithRetry(attempt + 1, maxAttempts), delay);
-        } else if (hasPurchased.value) {
-          console.log('✅ Purchase confirmed after payment!');
-        } else {
-          console.warn('⚠️ Purchase not confirmed after all retries');
-        }
-      };
-      
-      // Start checking immediately
-      await checkPurchaseWithRetry();
-    } else if (token.value) {
-      // Normal flow - check all interactions
-      console.log('🔍 Checking user interactions...');
-      await checkUserInteractions();
+watch(
+  () => canViewContent.value,
+  async (allowed) => {
+    if (allowed) {
+      await loadProtectedContent();
     }
-    
-    // Load content based on access
-    await loadContentIfAllowed();
-    
-    // Also check after delays to catch reactive updates
-    setTimeout(() => loadContentIfAllowed(), 500);
-    setTimeout(() => loadContentIfAllowed(), 1500);
-    
-    // If coming from payment, check again after longer delay
-    if (fromPayment.value) {
-      setTimeout(() => {
-        console.log('💳 Final purchase check after payment...');
-        checkUserInteractions().then(() => loadContentIfAllowed());
-      }, 3000);
-    }
-    
-    // Comments and ratings are always visible
-    await fetchComments();
-    await fetchRating();
-  } else {
-    console.log('⏳ Waiting for recipe to load...');
   }
-});
+);
 </script>
+ expalin what is the main role of this code

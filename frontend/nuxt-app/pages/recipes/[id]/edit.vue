@@ -91,19 +91,19 @@
                   >
                     <!-- Category Image -->
                     <div class="relative h-20 md:h-24 overflow-hidden">
-                      <img 
-                        v-if="cat.image_url"
-                        :src="cat.image_url" 
+                      <img
+                        v-if="shouldShowCategoryImage(cat)"
+                        :src="normalizedCategoryImageUrl(cat)"
                         :alt="cat.name"
                         class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        @error="(e) => e.target.style.display = 'none'"
+                        @error="markCategoryImageFailed(cat.id)"
                       />
-                      <!-- Fallback gradient if no image -->
+                      <!-- Fallback if no image -->
                       <div 
                         v-else
                         class="w-full h-full bg-gradient-to-br from-emerald-500/40 via-teal-500/40 to-blue-500/40 flex items-center justify-center"
                       >
-                        <span class="text-3xl">{{ getCategoryEmoji(cat.name) }}</span>
+                        <span class="text-white font-semibold text-sm text-center px-2">{{ cat.name }}</span>
                       </div>
                       
                       <!-- Overlay gradient -->
@@ -159,76 +159,7 @@
             </div>
           </div>
 
-          <!-- Multiple Images with Featured Selection -->
-          <div class="mb-8">
-            <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
-              <span class="text-emerald-400 mr-2">📸</span> Recipe Images
-            </h2>
-            <p class="text-gray-300 text-sm mb-4">Upload multiple images and select one as featured (thumbnail)</p>
-            
-            <!-- Image Upload Area -->
-            <div class="border-2 border-dashed border-white/30 rounded-lg p-6 text-center hover:border-emerald-400/50 transition-colors mb-4">
-              <input 
-                type="file" 
-                @change="handleMultipleImageUpload" 
-                accept="image/*"
-                multiple
-                class="hidden" 
-                ref="imageInput"
-              />
-              
-              <div @click="$refs.imageInput.click()" class="cursor-pointer">
-                <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                <p class="mt-2 text-sm text-gray-300">Click to upload images</p>
-                <p class="text-xs text-gray-400 mt-1">PNG, JPG, GIF up to 10MB each (multiple files allowed)</p>
-              </div>
-            </div>
-            <p v-if="uploadingImage" class="text-emerald-400 text-sm mb-4">Uploading images...</p>
-
-            <!-- Uploaded Images Grid -->
-            <div v-if="uploadedImages.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              <div 
-                v-for="(img, index) in uploadedImages" 
-                :key="index"
-                class="relative group"
-              >
-                <div class="relative">
-                  <img :src="img.url" :alt="`Image ${index + 1}`" class="w-full h-32 object-cover rounded-lg border-2" :class="img.isFeatured ? 'border-emerald-500' : 'border-white/20'" />
-                  
-                  <!-- Featured Badge -->
-                  <div v-if="img.isFeatured" class="absolute top-2 left-2 bg-emerald-500 text-white px-2 py-1 rounded text-xs font-bold">
-                    ⭐ Featured
-                  </div>
-                  
-                  <!-- Actions -->
-                  <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
-                    <button
-                      v-if="!img.isFeatured"
-                      @click="setFeaturedImage(index)"
-                      class="px-3 py-1 bg-emerald-500 text-white rounded text-xs hover:bg-emerald-600"
-                      title="Set as featured"
-                    >
-                      Set Featured
-                    </button>
-                    <button
-                      @click="removeImage(index)"
-                      class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
-                      title="Remove image"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <p v-if="uploadedImages.length === 0 && !uploadingImage" class="text-gray-400 text-sm text-center py-4">
-              No images uploaded yet. Upload at least one image and select it as featured.
-            </p>
-          </div>
-
+          
           <!-- Ingredients -->
           <div class="mb-8">
             <h2 class="text-2xl font-bold text-white mb-6 flex items-center">
@@ -236,7 +167,7 @@
             </h2>
             <div v-for="(ing, index) in ingredients" :key="index" class="mb-4 flex gap-3">
               <input v-model="ing.name" placeholder="Name" class="flex-1 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
-              <input v-model="ing.quantity" placeholder="Qty" class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
+              <input v-model.number="ing.quantity" type="number" min="0" step="any" placeholder="Qty" class="w-24 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white" />
               <select v-model="ing.unit_id" class="w-40 px-4 py-3 border border-white/20 rounded-lg bg-black/20 text-white">
                 <option value="" disabled>Select</option>
                 <option v-for="u in units" :key="u.id" :value="String(u.id)">{{ u.name }}</option>
@@ -274,8 +205,7 @@
             <button type="button" @click="$router.push(`/recipes/${recipeId}`)" class="flex-1 px-6 py-4 border border-white/30 rounded-lg text-white">Cancel</button>
             <button 
               type="submit" 
-              :disabled="isSubmitting || uploadingImage" 
-              @click="handleFormSubmit($event)"
+              :disabled="isSubmitting || uploadingImage"
               class="flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {{ isSubmitting ? 'Updating...' : 'Update Recipe' }}
@@ -288,7 +218,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { jwtDecode } from 'jwt-decode';
 import { useApolloClient } from '@vue/apollo-composable';
@@ -306,11 +236,37 @@ const ingredients = ref([]);
 const steps = ref([]);
 const updateError = ref('');
 const imageInput = ref(null);
+// Edit image logic removed
 const uploadedImages = ref([]);
 const uploadingImage = ref(false);
 const isSubmitting = ref(false);
 const formErrors = ref({});
+const failedCategoryImageIds = ref(new Set());
 const { client } = useApolloClient();
+
+const normalizeImageUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^\/\//.test(raw)) return `https:${raw}`;
+  return `https://${raw}`;
+};
+
+const normalizedCategoryImageUrl = (category) => {
+  return normalizeImageUrl(category?.image_url);
+};
+
+const shouldShowCategoryImage = (category) => {
+  const categoryId = Number(category?.id);
+  const hasImage = normalizedCategoryImageUrl(category) !== '';
+  return hasImage && !failedCategoryImageIds.value.has(categoryId);
+};
+
+const markCategoryImageFailed = (categoryId) => {
+  const next = new Set(failedCategoryImageIds.value);
+  next.add(Number(categoryId));
+  failedCategoryImageIds.value = next;
+};
 
 const RECIPE_QUERY = gql`
   query GetRecipe($id: Int!) {
@@ -387,7 +343,7 @@ const UPDATE_RECIPE_MUTATION = gql`
     $recipe: recipes_set_input!
     $ingredients: [recipe_ingredients_insert_input!]!
     $steps: [recipe_steps_insert_input!]!
-    $images: [recipe_images_insert_input!]!
+    
   ) {
     update_recipes_by_pk(pk_columns: { id: $recipeId }, _set: $recipe) {
       id
@@ -404,12 +360,7 @@ const UPDATE_RECIPE_MUTATION = gql`
     insert_recipe_steps(objects: $steps) {
       affected_rows
     }
-    delete_recipe_images(where: { recipe_id: { _eq: $recipeId } }) {
-      affected_rows
-    }
-    insert_recipe_images(objects: $images) {
-      affected_rows
-    }
+    
   }
 `;
 
@@ -427,6 +378,8 @@ const formDescription = ref('');
 const formCategoryId = ref(0);
 const formPreparationTime = ref(0);
 const formPrice = ref(0);
+const createIngredient = () => ({ name: '', quantity: '', unit_id: '' });
+const createStep = () => ({ instruction: '', image_url: '' });
 
 // Get current user ID from token
 const getCurrentUserId = () => {
@@ -442,27 +395,21 @@ const getCurrentUserId = () => {
       return typeof decoded.user_id === 'string' ? parseInt(decoded.user_id) : decoded.user_id;
     }
     return null;
-  } catch (err) {
-    console.error('[EDIT] Error decoding token:', err);
+  } catch {
     return null;
   }
 };
 
 // Redirect if not logged in
 onMounted(async () => {
-  console.log('[EDIT] Page mounted, recipeId:', recipeId);
-  
   if (!token.value) {
-    console.log('[EDIT] No token, redirecting to login');
     router.push('/login');
     return;
   }
-  
+
   const currentUserId = getCurrentUserId();
-  console.log('[EDIT] Current user ID:', currentUserId);
-  
+
   try {
-    console.log('[EDIT] Fetching recipe from Hasura:', recipeId);
     const [recipeResult, ingredientsResult, stepsResult, imagesResult, categoriesResult, unitsResult] = await Promise.all([
       client.query({ query: RECIPE_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
       client.query({ query: RECIPE_INGREDIENTS_QUERY, variables: { id: recipeId }, fetchPolicy: 'network-only' }),
@@ -476,38 +423,21 @@ onMounted(async () => {
     if (!recipe.value) {
       throw new Error('Recipe not found');
     }
-    console.log('[EDIT] Recipe loaded:', recipe.value);
-    console.log('[EDIT] Recipe user_id:', recipe.value?.user_id);
-    
+
     // Check ownership
     const recipeUserId = recipe.value?.user_id;
     if (recipeUserId && currentUserId && recipeUserId !== currentUserId) {
-      console.error('[EDIT] User is not the owner! Recipe user_id:', recipeUserId, 'Current user_id:', currentUserId);
       updateError.value = 'You do not have permission to edit this recipe';
-      alert('You do not have permission to edit this recipe. Redirecting...');
       router.push(`/recipes/${recipeId}`);
       return;
     }
-    
-    // Set form values - assign to individual refs
+
     if (recipe.value) {
-      // Wait for next tick to ensure DOM is ready
-      await nextTick();
-      
-      // Assign to individual refs
       formTitle.value = recipe.value.title || '';
       formDescription.value = recipe.value.description || '';
       formCategoryId.value = recipe.value.category_id || 0;
       formPreparationTime.value = recipe.value.preparation_time || 0;
       formPrice.value = recipe.value.price || 0;
-      
-      console.log('[EDIT] Category ID set to:', formCategoryId.value);
-      
-      console.log('[EDIT] Form values set:');
-      console.log('[EDIT] Title:', formTitle.value);
-      console.log('[EDIT] Description:', formDescription.value);
-    } else {
-      console.error('[EDIT] Recipe value is null/undefined');
     }
 
     const ingData = ingredientsResult?.data?.recipe_ingredients || [];
@@ -517,9 +447,8 @@ onMounted(async () => {
       unit_id: ing.unit_id ? String(ing.unit_id) : ''
     }));
     if (ingredients.value.length === 0) {
-      ingredients.value = [{ name: '', quantity: '', unit_id: '' }];
+      ingredients.value = [createIngredient()];
     }
-    console.log('[EDIT] Ingredients loaded:', ingredients.value);
 
     const stepsData = stepsResult?.data?.recipe_steps || [];
     steps.value = stepsData.map(step => ({
@@ -527,127 +456,29 @@ onMounted(async () => {
       image_url: step.image_url || ''
     }));
     if (steps.value.length === 0) {
-      steps.value = [{ instruction: '', image_url: '' }];
+      steps.value = [createStep()];
     }
-    console.log('[EDIT] Steps loaded:', steps.value);
-
-    const images = imagesResult?.data?.recipe_images || [];
-    uploadedImages.value = images.map(img => ({ url: img.url, isFeatured: img.is_featured }));
 
     categories.value = categoriesResult?.data?.categories || [];
     units.value = unitsResult?.data?.units || [];
-    console.log('[EDIT] Categories loaded:', categories.value.length);
   } catch (err) {
-    console.error('[EDIT] Error loading data:', err);
     updateError.value = err.message || 'Failed to load recipe data';
-    alert(`Error: ${err.message}`);
   } finally {
     loading.value = false;
-    console.log('[EDIT] Loading complete');
   }
 });
 
-const addIngredient = () => ingredients.value.push({ name: '', quantity: '', unit_id: '' });
+const addIngredient = () => ingredients.value.push(createIngredient());
 const removeIngredient = (index) => {
   if (ingredients.value.length > 1) ingredients.value.splice(index, 1);
 };
-const addStep = () => steps.value.push({ instruction: '', image_url: '' });
+const addStep = () => steps.value.push(createStep());
 const removeStep = (index) => {
   if (steps.value.length > 1) steps.value.splice(index, 1);
 };
 
-// Get Category Emoji (fallback when image is not available)
-const getCategoryEmoji = (name) => {
-  const emojiMap = {
-    'Italian': '🍝',
-    'Mexican': '🌮',
-    'Asian': '🍜',
-    'Dessert': '🍰',
-    'Breakfast': '🥞',
-    'Lunch': '🥗',
-    'Dinner': '🍽️',
-    'Vegetarian': '🥬',
-    'Vegan': '🌱',
-    'Seafood': '🐟',
-    'Pasta': '🍝',
-    'Pizza': '🍕',
-    'Salad': '🥗',
-    'Soup': '🍲',
-    'Beverage': '🥤',
-  };
-  return emojiMap[name] || '🍳';
-};
 
-// Handle Multiple Image Upload
-const handleMultipleImageUpload = async (event) => {
-  const files = Array.from(event.target.files);
-  if (files.length === 0) return;
 
-  uploadingImage.value = true;
-  updateError.value = '';
-
-  try {
-    const uploadPromises = files.map(async (file) => {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => {
-          const base64String = reader.result.split(',')[1];
-          resolve(base64String);
-        };
-        reader.onerror = (error) => reject(error);
-      });
-
-      const result = await client.mutate({
-        mutation: UPLOAD_FILE_MUTATION,
-        variables: {
-          file: {
-            filename: file.name,
-            mimetype: file.type,
-            content: base64
-          }
-        }
-      });
-
-      const url = result.data?.uploadFile?.url;
-      if (!url) {
-        throw new Error(`No URL returned for ${file.name}`);
-      }
-
-      return { url, isFeatured: false };
-    });
-
-    const uploaded = await Promise.all(uploadPromises);
-    uploadedImages.value.push(...uploaded);
-    
-    // If this is the first image, set it as featured automatically
-    if (uploadedImages.value.length === uploaded.length && uploadedImages.value.length > 0) {
-      uploadedImages.value[0].isFeatured = true;
-    }
-  } catch (err) {
-    updateError.value = err.message || 'Failed to upload images';
-    console.error(err);
-  } finally {
-    uploadingImage.value = false;
-    if (event.target) {
-      event.target.value = '';
-    }
-  }
-};
-
-// Set Featured Image
-const setFeaturedImage = (index) => {
-  uploadedImages.value.forEach(img => img.isFeatured = false);
-  uploadedImages.value[index].isFeatured = true;
-};
-
-// Remove Image
-const removeImage = (index) => {
-  const removed = uploadedImages.value.splice(index, 1)[0];
-  if (removed.isFeatured && uploadedImages.value.length > 0) {
-    uploadedImages.value[0].isFeatured = true;
-  }
-};
 
 // Form validation
 const validateForm = () => {
@@ -684,62 +515,23 @@ const validateForm = () => {
 
 // Handle form submit
 const handleFormSubmit = async (event) => {
-  console.log('[EDIT] ========== FORM SUBMIT TRIGGERED ==========');
-  console.log('[EDIT] Event:', event);
-  
-  // Prevent default form submission
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
-  
+
   updateError.value = '';
   formErrors.value = {};
-  
-  console.log('[EDIT] Current form values:');
-  console.log('[EDIT] - Title:', formTitle.value);
-  console.log('[EDIT] - Description:', formDescription.value);
-  console.log('[EDIT] - Category ID:', formCategoryId.value);
-  console.log('[EDIT] - Preparation Time:', formPreparationTime.value);
-  console.log('[EDIT] - Price:', formPrice.value);
-  console.log('[EDIT] - Ingredients count:', ingredients.value.length);
-  console.log('[EDIT] - Steps count:', steps.value.length);
-  console.log('[EDIT] - Images count:', uploadedImages.value.length);
-  
+
   const isValid = validateForm();
-  console.log('[EDIT] Form validation result:', isValid);
-  console.log('[EDIT] Form errors:', formErrors.value);
-  
   if (!isValid) {
-    console.error('[EDIT] Form validation failed! Errors:', formErrors.value);
     updateError.value = 'Please fix the errors above before submitting.';
     return;
   }
-  
-  // Create form data object from individual refs
-  const formData = {
-    title: formTitle.value,
-    description: formDescription.value,
-    category_id: formCategoryId.value,
-    preparation_time: formPreparationTime.value,
-    price: formPrice.value
-  };
-  
-  console.log('[EDIT] Form data before submit:', formData);
-  console.log('[EDIT] Calling handleUpdateRecipe...');
-  
-  await handleUpdateRecipe(formData);
-};
 
-const handleUpdateRecipe = async (values) => {
-  console.log('[EDIT] ========== handleUpdateRecipe CALLED ==========');
-  console.log('[EDIT] Received values:', values);
-  
   updateError.value = '';
   isSubmitting.value = true;
-  
-  console.log('[EDIT] Form submitted with values:', values);
-  
+
   // Validate ingredients
   const validIngredients = ingredients.value.filter(ing => ing.name && ing.name.trim() !== '');
   if (validIngredients.length === 0) {
@@ -755,6 +547,17 @@ const handleUpdateRecipe = async (values) => {
     return;
   }
 
+  const hasInvalidQuantity = validIngredients.some((ing) => {
+    if (ing.quantity === '' || ing.quantity === null || ing.quantity === undefined) return true;
+    const quantityValue = Number(ing.quantity);
+    return Number.isNaN(quantityValue) || quantityValue <= 0;
+  });
+  if (hasInvalidQuantity) {
+    updateError.value = 'Please enter a valid quantity (number > 0) for every ingredient';
+    isSubmitting.value = false;
+    return;
+  }
+
   // Validate steps
   const validSteps = steps.value.filter(step => step.instruction && step.instruction.trim() !== '');
   if (validSteps.length === 0) {
@@ -763,27 +566,6 @@ const handleUpdateRecipe = async (values) => {
     return;
   }
 
-  // Validate images (allow keeping existing images if no new ones uploaded)
-  if (uploadedImages.value.length === 0) {
-    updateError.value = 'Please upload at least one image';
-    isSubmitting.value = false;
-    return;
-  }
-
-  // Find featured image
-  let featuredImage = uploadedImages.value.find(img => img.isFeatured);
-  if (!featuredImage && uploadedImages.value.length > 0) {
-    // Auto-set first image as featured if none selected
-    uploadedImages.value[0].isFeatured = true;
-    featuredImage = uploadedImages.value[0];
-  }
-  
-  if (!featuredImage) {
-    updateError.value = 'Please select a featured image';
-    isSubmitting.value = false;
-    return;
-  }
-  
   // Format ingredients to match schema (name, quantity, unit_id)
   const formattedIngredients = validIngredients.map(ing => ({
     name: ing.name || '',
@@ -791,30 +573,21 @@ const handleUpdateRecipe = async (values) => {
     unit_id: parseInt(ing.unit_id)
   }));
   
-  // Format steps to match backend model (instruction, image_url)
-  const formattedSteps = validSteps.map(step => ({
-    instruction: step.instruction || '',
-    image_url: step.image_url || ''
-  }));
+  
   
   // Use values from form submission
   const recipeData = {
-    category_id: parseInt(values.category_id),
-    title: values.title,
-    description: values.description,
-    preparation_time: parseInt(values.preparation_time),
-    price: parseFloat(values.price) || 0,
+    category_id: parseInt(formCategoryId.value),
+    title: formTitle.value,
+    description: formDescription.value,
+    preparation_time: parseInt(formPreparationTime.value),
+    price: parseFloat(formPrice.value) || 0,
     ingredients: formattedIngredients,
     steps: formattedSteps,
     images: uploadedImages.value.map(img => img.url)
   };
-  
-  console.log('[EDIT] Formatted recipe data to send:', recipeData);
 
   try {
-    console.log('[EDIT] ========== SENDING GRAPHQL MUTATION ==========');
-    console.log('[EDIT] Updating recipe:', recipeId);
-
     const recipeSet = {
       category_id: recipeData.category_id,
       title: recipeData.title,
@@ -854,20 +627,11 @@ const handleUpdateRecipe = async (values) => {
       }
     });
 
-    const successMessage = 'Recipe updated successfully!';
-    if (typeof window !== 'undefined' && window.showNotification) {
-      window.showNotification(successMessage, 'success');
-    } else {
-      alert(successMessage);
-    }
-
     await router.push(`/recipes/${recipeId}`);
   } catch (err) {
     updateError.value = err.message || 'An error occurred while updating the recipe';
-    console.error('[EDIT] Exception:', err);
   } finally {
     isSubmitting.value = false;
   }
 };
 </script>
-
